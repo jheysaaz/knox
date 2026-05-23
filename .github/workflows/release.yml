@@ -1,0 +1,88 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            runner: macos-14
+            archive: tar.gz
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            runner: windows-2022
+            archive: zip
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+            archive: tar.gz
+    runs-on: ${{ matrix.runner }}
+    env:
+      RUST_BACKTRACE: 1
+      CARGO_TERM_COLOR: always
+      OCR_LIBS_TAG: ocr-libs-v1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Download OCR libs from release (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          bash scripts/download-ocr-libs.sh "$OCR_LIBS_TAG" "${{ matrix.target }}"
+
+      - name: Download OCR libs from release (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = "ocr-libs-${{ matrix.target }}.zip"
+          gh release download "$env:OCR_LIBS_TAG" -p $archive -D .
+          Expand-Archive -Path $archive -DestinationPath src-tauri/third_party/native -Force
+          Remove-Item $archive
+
+      - name: Ensure OCR libs exist
+        run: |
+          test -d "src-tauri/third_party/native/${{ matrix.target }}"
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Build Tauri app
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        run: pnpm tauri build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: knox-${{ matrix.target }}
+          path: |
+            src-tauri/target/release/bundle/**

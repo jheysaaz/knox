@@ -1,0 +1,5 @@
+{
+  "identifier": "dialog",
+  "windows": ["main"],
+  "permissions": ["dialog:default"]
+}
