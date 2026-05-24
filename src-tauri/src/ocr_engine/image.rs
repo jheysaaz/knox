@@ -39,7 +39,7 @@ pub fn preprocess(
     if binarizable {
         let mut binary = apply_binarization(&denoised, settings);
         binary = apply_morphology(&binary, settings.denoise_level);
-        let deskewed = apply_deskew(&binary, settings.deskew_mode.clone())?;
+        let deskewed = apply_deskew(&binary, settings.deskew_mode)?;
         let rethreshold = otsu_level(&deskewed);
         let final_binary = otsu_binarize_with_threshold(&deskewed, rethreshold);
         let (data, width, height) = to_bitonal_1bpp(&final_binary);
@@ -52,7 +52,7 @@ pub fn preprocess(
             }),
         })
     } else {
-        let deskewed = apply_deskew(&denoised, settings.deskew_mode.clone())?;
+        let deskewed = apply_deskew(&denoised, settings.deskew_mode)?;
         Ok(ProcessedImage {
             ocr_image: deskewed.clone(),
             bitonal: None,
@@ -119,7 +119,7 @@ fn is_binarizable(image: &GrayImage, threshold: u8) -> bool {
         return false;
     }
     let ratio = black as f64 / total as f64;
-    ratio >= 0.02 && ratio <= 0.7
+    (0.02..=0.7).contains(&ratio)
 }
 
 fn otsu_binarize_with_threshold(image: &GrayImage, threshold: u8) -> GrayImage {
@@ -236,7 +236,7 @@ fn deskew_hough(image: &GrayImage) -> Result<GrayImage, PipelineError> {
 fn to_bitonal_1bpp(image: &GrayImage) -> (Vec<u8>, u32, u32) {
     let width = image.width();
     let height = image.height();
-    let row_bytes = ((width + 7) / 8) as usize;
+    let row_bytes = width.div_ceil(8) as usize;
     let mut data = vec![0u8; row_bytes * height as usize];
     for y in 0..height {
         for x in 0..width {

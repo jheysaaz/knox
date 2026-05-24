@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
 use image::GrayImage;
@@ -119,10 +119,7 @@ where
                 continue;
             }
             let image = decode_stream_image(stream, doc)?;
-            f(PdfPageInfo {
-                page_number: page_number as u32,
-                image,
-            })?;
+            f(PdfPageInfo { page_number, image })?;
         }
     }
     Ok(())
@@ -137,7 +134,7 @@ pub fn replace_page_images(
 ) -> Result<(), PipelineError> {
     let pages = doc.get_pages();
     for (page_number, page_id) in pages {
-        let Some(new_stream) = replacements.remove(&(page_number as u32)) else {
+        let Some(new_stream) = replacements.remove(&page_number) else {
             continue;
         };
 
@@ -382,6 +379,39 @@ pub(crate) fn decode_stream_image(
     }
 }
 
+fn enforce_pdfa_metadata(doc: &mut Document) -> Result<(), PipelineError> {
+    let info_id = doc
+        .trailer
+        .get(b"Info")
+        .and_then(|obj| obj.as_reference())
+        .unwrap_or_else(|_| doc.new_object_id());
+
+    let mut info = Dictionary::new();
+    info.set("Producer", "Knox");
+    info.set("Creator", "Knox");
+    doc.objects.insert(info_id, Object::Dictionary(info));
+    doc.trailer.set("Info", Object::Reference(info_id));
+
+    let mut metadata = Dictionary::new();
+    metadata.set("Type", "Metadata");
+    metadata.set("Subtype", "XML");
+    let xml = r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" pdfaid:part="2" pdfaid:conformance="B"/>
+</rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>"#;
+    let metadata_stream = Stream::new(metadata, xml.as_bytes().to_vec());
+    let metadata_id = doc.add_object(metadata_stream);
+    if let Ok(catalog) = doc.catalog_mut() {
+        catalog.set("Metadata", Object::Reference(metadata_id));
+    } else {
+        doc.trailer.set("Metadata", Object::Reference(metadata_id));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,37 +557,4 @@ mod tests {
         let result = replace_page_images(&mut doc, replacements);
         assert!(result.is_ok());
     }
-}
-
-fn enforce_pdfa_metadata(doc: &mut Document) -> Result<(), PipelineError> {
-    let info_id = doc
-        .trailer
-        .get(b"Info")
-        .and_then(|obj| obj.as_reference())
-        .unwrap_or_else(|_| doc.new_object_id());
-
-    let mut info = Dictionary::new();
-    info.set("Producer", "Knox");
-    info.set("Creator", "Knox");
-    doc.objects.insert(info_id, Object::Dictionary(info));
-    doc.trailer.set("Info", Object::Reference(info_id));
-
-    let mut metadata = Dictionary::new();
-    metadata.set("Type", "Metadata");
-    metadata.set("Subtype", "XML");
-    let xml = r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/">
-<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-<rdf:Description xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" pdfaid:part="2" pdfaid:conformance="B"/>
-</rdf:RDF>
-</x:xmpmeta>
-<?xpacket end="w"?>"#;
-    let metadata_stream = Stream::new(metadata, xml.as_bytes().to_vec());
-    let metadata_id = doc.add_object(metadata_stream);
-    if let Ok(catalog) = doc.catalog_mut() {
-        catalog.set("Metadata", Object::Reference(metadata_id));
-    } else {
-        doc.trailer.set("Metadata", Object::Reference(metadata_id));
-    }
-    Ok(())
 }

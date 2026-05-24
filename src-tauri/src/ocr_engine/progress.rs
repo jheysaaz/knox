@@ -67,10 +67,10 @@ impl ProgressTracker {
     ) {
         {
             let mut last = self.last_emit.lock().unwrap();
-            if let Some(t) = *last {
-                if t.elapsed().as_millis() < MIN_EMIT_INTERVAL_MS as u128 {
-                    return;
-                }
+            if let Some(t) = *last
+                && t.elapsed().as_millis() < MIN_EMIT_INTERVAL_MS as u128
+            {
+                return;
             }
             *last = Some(Instant::now());
         }
@@ -84,7 +84,7 @@ impl ProgressTracker {
         };
         let payload = PipelineProgress {
             job_id: job_id.clone(),
-            status: status.clone(),
+            status,
             current_page,
             total_pages,
             total_files_processed: self.totals.total_files_processed.load(Ordering::Relaxed),

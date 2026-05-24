@@ -83,22 +83,20 @@ impl Engine {
             )
             .await;
             drop(permit);
-            if let Err(err) = &result {
-                if !matches!(err, PipelineError::Cancelled) {
-                    tracing::error!(target: "knox::engine", job_id = %job_id, error = %err, "file processing failed");
-                    tracker.emit(
-                        &app,
-                        job_id.clone(),
-                        PipelineStatus::Failed,
-                        0,
-                        0,
-                        Some(err.to_string()),
-                    );
-                }
+            if let Err(err) = &result
+                && !matches!(err, PipelineError::Cancelled)
+            {
+                tracing::error!(target: "knox::engine", job_id = %job_id, error = %err, "file processing failed");
+                tracker.emit(
+                    &app,
+                    job_id.clone(),
+                    PipelineStatus::Failed,
+                    0,
+                    0,
+                    Some(err.to_string()),
+                );
             }
-            if let Err(err) = result {
-                return Err(err);
-            }
+            result?;
             tracing::info!(target: "knox::engine", job_id = %job_id, "file completed");
         }
 
@@ -127,9 +125,9 @@ async fn process_single_file(
     tracing::info!(target: "knox::engine", job_id, total_pages, "document loaded");
     let mut replacements: BTreeMap<u32, lopdf::Stream> = BTreeMap::new();
     let tess = TessApi::new(&config.tessdata_path, &config.languages)?;
-    tess.set_page_seg_mode(settings.psm.clone().into())?;
+    tess.set_page_seg_mode(settings.psm.into())?;
 
-    for_each_page_image(&document, settings.existing_text.clone(), |page| {
+    for_each_page_image(&document, settings.existing_text, |page| {
         if cancelled.load(Ordering::SeqCst) {
             return Err(PipelineError::Cancelled);
         }
@@ -169,7 +167,7 @@ async fn process_single_file(
             None,
         );
 
-        let stream = match (settings.compression.clone(), processed.bitonal) {
+        let stream = match (settings.compression, processed.bitonal) {
             (
                 CompressionMode::Ccitt,
                 Some(BitonalImage {
