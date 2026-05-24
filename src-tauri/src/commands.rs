@@ -34,8 +34,7 @@ fn sanitize_processing_config(
     ]
     .into_iter()
     .flatten()
-    .filter(|p| p.exists())
-    .next()
+    .find(|p| p.exists())
     .ok_or_else(|| CommandError::pipeline("Unable to resolve tessdata path"))?;
 
     let max_concurrent_files = processing
@@ -87,10 +86,8 @@ pub fn write_log_file(path: String, content: String) -> Result<(), CommandError>
     if p.extension().and_then(|e| e.to_str()) != Some("log") {
         return Err(CommandError::validation("File must have .log extension"));
     }
-    if let Some(parent) = p.parent() {
-        if !parent.is_dir() {
-            return Err(CommandError::validation("Parent directory does not exist"));
-        }
+    if let Some(parent) = p.parent() && !parent.is_dir() {
+        return Err(CommandError::validation("Parent directory does not exist"));
     }
     std::fs::write(&path, &content).map_err(|e| CommandError::io(e.to_string()))
 }
@@ -344,7 +341,7 @@ pub fn start_queue(
                         queue.jobs.get(index).and_then(|job| job.processing.clone())
                     })
                 };
-                let options = job_options.unwrap_or_else(|| OcrOptions {
+                let options = job_options.unwrap_or(OcrOptions {
                     output_type: OutputType::Pdfa,
                     lossy_compression: true,
                     jpeg_quality: 60,
