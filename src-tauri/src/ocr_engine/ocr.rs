@@ -1,27 +1,31 @@
-use std::ffi::{CString, NulError};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::ffi::{CStr, CString, NulError};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr::NonNull;
 
 use crate::ocr_engine::error::PipelineError;
 
+/// A single recognised word with its bounding box in image pixel coordinates
+/// (origin top-left).
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct WordBounds {
+    pub text: String,
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+    pub confidence: f32,
+}
+
 /// Safe wrapper around the Tesseract C API (`TessBaseAPI`). All FFI calls are
 /// isolated with `catch_unwind` to prevent panics from propagating.
-///
-/// # Safety
-/// Each `TessBaseAPI` handle is independent per Tesseract's API contract.
-/// Handles are never shared across threads concurrently — each instance is
-/// created, used, and dropped within a single task scope.
 pub struct TessApi {
     api: NonNull<tesseract_sys::TessBaseAPI>,
 }
 
-// SAFETY: `TessBaseAPI` handles are independent (each is its own Tesseract
-// engine instance). Our pipeline never shares a handle across threads
-// concurrently. This allows pooled reuse across async tasks.
 unsafe impl Send for TessApi {}
 
 impl TessApi {
-    /// Initialises a new Tesseract API instance with the given tessdata path and languages.
     pub fn new(tessdata_path: &str, languages: &str) -> Result<Self, PipelineError> {
         let api = guard_unwind("TessBaseAPICreate", || unsafe {
             tesseract_sys::TessBaseAPICreate()
@@ -39,7 +43,6 @@ impl TessApi {
         Ok(Self { api })
     }
 
-    /// Sets the image data on the Tesseract API and runs recognition.
     pub fn set_image_bytes(
         &self,
         data: &[u8],
@@ -69,7 +72,6 @@ impl TessApi {
         Ok(())
     }
 
-    /// Retrieves the recognised UTF-8 text. The caller must have already called `set_image_bytes`.
     pub fn get_text(&self) -> Result<String, PipelineError> {
         let ptr = guard_unwind("TessBaseAPIGetUTF8Text", || unsafe {
             tesseract_sys::TessBaseAPIGetUTF8Text(self.api.as_ptr())
@@ -79,7 +81,7 @@ impl TessApi {
                 "TessBaseAPIGetUTF8Text returned null".to_string(),
             ));
         }
-        let text = unsafe { std::ffi::CStr::from_ptr(ptr) }
+        let text = unsafe { CStr::from_ptr(ptr) }
             .to_str()
             .map_err(|_| PipelineError::FfiOcr("invalid UTF-8 from Tesseract".to_string()))?
             .to_string();
@@ -87,8 +89,83 @@ impl TessApi {
         Ok(text)
     }
 
-    /// Resets the engine for reuse with a new image, keeping the language
-    /// model loaded. This avoids re-parsing tessdata between jobs.
+    /// Iterates over recognised words and returns their bounding boxes and text.
+    /// Must be called after `set_image_bytes()`. Returns an empty vec if no
+    /// recognition data is available.
+    pub fn get_words(&self) -> Result<Vec<WordBounds>, PipelineError> {
+        let iter = guard_unwind("TessBaseAPIGetIterator", || unsafe {
+            tesseract_sys::TessBaseAPIGetIterator(self.api.as_ptr())
+        })?;
+        let iter = match NonNull::new(iter) {
+            Some(it) => it,
+            None => return Ok(Vec::new()),
+        };
+
+        let mut words = Vec::new();
+        let level = tesseract_sys::TessPageIteratorLevel_RIL_WORD;
+
+        loop {
+            let text_ptr = guard_unwind("TessResultIteratorGetUTF8Text", || unsafe {
+                tesseract_sys::TessResultIteratorGetUTF8Text(iter.as_ptr() as *const _, level)
+            })?;
+
+            if !text_ptr.is_null() {
+                let text = unsafe { CStr::from_ptr(text_ptr) }
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string();
+                unsafe { tesseract_sys::TessDeleteText(text_ptr) };
+
+                if !text.is_empty() {
+                    let mut left: i32 = 0;
+                    let mut top: i32 = 0;
+                    let mut right: i32 = 0;
+                    let mut bottom: i32 = 0;
+
+                    // TessPageIterator (cast from ResultIterator) for bounding box
+                    let page_iter = iter.as_ptr() as *const tesseract_sys::TessPageIterator;
+                    let has_bbox = guard_unwind("TessPageIteratorBoundingBox", || unsafe {
+                        tesseract_sys::TessPageIteratorBoundingBox(
+                            page_iter,
+                            level,
+                            &mut left,
+                            &mut top,
+                            &mut right,
+                            &mut bottom,
+                        )
+                    })?;
+
+                    if has_bbox != 0 {
+                        let confidence = guard_unwind("TessResultIteratorConfidence", || unsafe {
+                            tesseract_sys::TessResultIteratorConfidence(
+                                iter.as_ptr() as *const _,
+                                level,
+                            )
+                        })?;
+                        words.push(WordBounds {
+                            text,
+                            left,
+                            top,
+                            right,
+                            bottom,
+                            confidence,
+                        });
+                    }
+                }
+            }
+
+            let has_next = guard_unwind("TessResultIteratorNext", || unsafe {
+                tesseract_sys::TessResultIteratorNext(iter.as_ptr(), level)
+            })?;
+            if has_next == 0 {
+                break;
+            }
+        }
+
+        unsafe { tesseract_sys::TessResultIteratorDelete(iter.as_ptr()) };
+        Ok(words)
+    }
+
     pub fn clear(&self) -> Result<(), PipelineError> {
         guard_unwind("TessBaseAPIClear", || unsafe {
             tesseract_sys::TessBaseAPIClear(self.api.as_ptr())
@@ -96,10 +173,20 @@ impl TessApi {
         Ok(())
     }
 
-    /// Sets the page segmentation mode for the Tesseract engine.
     pub fn set_page_seg_mode(&self, mode: tesseract_sys::PageSegMode) -> Result<(), PipelineError> {
         guard_unwind("TessBaseAPISetPageSegMode", || unsafe {
             tesseract_sys::TessBaseAPISetPageSegMode(self.api.as_ptr(), mode as _)
+        })?;
+        Ok(())
+    }
+
+    /// Informs Tesseract of the image's actual resolution in DPI.
+    /// Without this, Tesseract auto-estimates resolution from image dimensions,
+    /// which is often wrong for downscaled pages and causes character
+    /// segmentation errors.
+    pub fn set_source_resolution(&self, dpi: u32) -> Result<(), PipelineError> {
+        guard_unwind("TessBaseAPISetSourceResolution", || unsafe {
+            tesseract_sys::TessBaseAPISetSourceResolution(self.api.as_ptr(), dpi as i32)
         })?;
         Ok(())
     }
@@ -114,13 +201,11 @@ impl Drop for TessApi {
     }
 }
 
-/// Converts a `&str` to `CString`, returning an error if a nul byte is present.
 fn to_cstring(input: &str) -> Result<CString, PipelineError> {
     CString::new(input)
         .map_err(|NulError { .. }| PipelineError::FfiOcr("nul byte in tessdata path".to_string()))
 }
 
-/// Wraps a closure with `catch_unwind` to isolate panics (e.g. from FFI calls).
 fn guard_unwind<T>(label: &'static str, f: impl FnOnce() -> T) -> Result<T, PipelineError> {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(value) => Ok(value),

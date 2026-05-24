@@ -23,7 +23,7 @@ interface Job {
 
 interface PipelineProgress {
   jobId: string;
-  status: "processing" | "ocr" | "compressing" | "completed" | "failed";
+  status: "processing" | "ocr" | "completed" | "failed";
   currentPage: number;
   totalPages: number;
   totalFilesProcessed: number;
@@ -49,15 +49,7 @@ const mapJobStatus = (status: Job["status"]): FileItem["status"] => {
 
 const mapSettingsToOptions = (values: ProfileValues) => ({
   outputType: values.archiveEnforcement ? "pdfa" : "pdf",
-  lossyCompression: false,
-  jpegQuality: 60,
-  deskew: values.deskew !== "disabled",
-  clean: values.denoiseLevel > 0,
-  removeBackground: values.binarization !== "fixed",
-  preserveMetadata: true,
   safeMode: false,
-  maxConcurrency: values.cpuCores,
-  perJobThreads: values.cpuCores,
   binarization: values.binarization,
   fixedThreshold: values.fixedThreshold,
   deskewMode: values.deskew,
@@ -67,15 +59,14 @@ const mapSettingsToOptions = (values: ProfileValues) => ({
   compression: values.compression,
   resolutionDpi: Number(values.resolution),
   archiveEnforcement: values.archiveEnforcement,
-  languages: values.languages,
+  languages: values.languages.join("+"),
   memoryPages: values.memoryPages,
 });
 
 const mapSettingsToProcessing = (values: ProfileValues) => ({
   maxConcurrentFiles: values.memoryPages,
   tessdataPath: undefined,
-  languages: values.languages,
-  threadPoolSize: values.cpuCores,
+  languages: values.languages.join("+"),
 });
 
 export function useQueue(addLog: (level: LogEntry["level"], message: string) => void) {
@@ -278,6 +269,27 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
         toast.error("No pending files to process");
         return;
       }
+
+      // Ensure language packs are available
+      if (settings.languages.length > 0) {
+        const langResult = await invoke<{
+          downloaded: string[];
+          skipped: string[];
+          errors: Record<string, string>;
+        }>("ensure_language_packs", {
+          languages: [...new Set(settings.languages)],
+        });
+        if (langResult.downloaded.length > 0) {
+          addLog("info", `Downloaded ${langResult.downloaded.length} language pack(s)`);
+        }
+        if (Object.keys(langResult.errors).length > 0) {
+          const failed = Object.entries(langResult.errors)
+            .map(([l, e]) => `${l}: ${e}`)
+            .join("; ");
+          addLog("warn", `Language pack download issues: ${failed}`);
+        }
+      }
+
       const state = await invoke<QueueState>("enqueue", {
         payload: {
           files: paths,

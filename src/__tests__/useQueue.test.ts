@@ -26,7 +26,6 @@ function emitEvent(event: string, payload: unknown) {
 }
 
 const defaultSettings = {
-  cpuCores: 6,
   memoryPages: 30,
   binarization: "otsu" as const,
   fixedThreshold: 128,
@@ -37,15 +36,21 @@ const defaultSettings = {
   compression: "ccitt" as const,
   resolution: "300",
   archiveEnforcement: false,
-  languages: "eng",
+  languages: ["eng"],
 };
 
 describe("useQueue", () => {
   it("handleStart calls invoke('enqueue') with correct payload", async () => {
-    vi.mocked(invoke).mockResolvedValue({
-      jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
-      isRunning: false,
-    });
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({
+        downloaded: [],
+        skipped: ["eng"],
+        errors: {},
+      })
+      .mockResolvedValueOnce({
+        jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+        isRunning: false,
+      });
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
 
@@ -69,7 +74,8 @@ describe("useQueue", () => {
       await result.current.handleStart(defaultSettings);
     });
 
-    expect(invoke).toHaveBeenCalledWith(
+    expect(invoke).toHaveBeenNthCalledWith(
+      2,
       "enqueue",
       expect.objectContaining({
         payload: expect.objectContaining({
@@ -78,7 +84,7 @@ describe("useQueue", () => {
         }),
       }),
     );
-    expect(invoke).toHaveBeenCalledWith("start_queue");
+    expect(invoke).toHaveBeenNthCalledWith(3, "start_queue");
     expect(addLog).toHaveBeenCalledWith("info", "Processing 1 file(s)...");
   });
 
@@ -98,10 +104,16 @@ describe("useQueue", () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
 
-    vi.mocked(invoke).mockResolvedValue({
-      jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
-      isRunning: false,
-    });
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({
+        downloaded: [],
+        skipped: ["eng"],
+        errors: {},
+      })
+      .mockResolvedValueOnce({
+        jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+        isRunning: false,
+      });
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -141,10 +153,16 @@ describe("useQueue", () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
 
-    vi.mocked(invoke).mockResolvedValue({
-      jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
-      isRunning: false,
-    });
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({
+        downloaded: [],
+        skipped: ["eng"],
+        errors: {},
+      })
+      .mockResolvedValueOnce({
+        jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+        isRunning: false,
+      });
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -185,10 +203,16 @@ describe("useQueue", () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
 
-    vi.mocked(invoke).mockResolvedValue({
-      jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
-      isRunning: false,
-    });
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({
+        downloaded: [],
+        skipped: ["eng"],
+        errors: {},
+      })
+      .mockResolvedValueOnce({
+        jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+        isRunning: false,
+      });
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -229,10 +253,16 @@ describe("useQueue", () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
 
-    vi.mocked(invoke).mockResolvedValue({
-      jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
-      isRunning: false,
-    });
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({
+        downloaded: [],
+        skipped: ["eng"],
+        errors: {},
+      })
+      .mockResolvedValueOnce({
+        jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+        isRunning: false,
+      });
     act(() => {
       result.current.handleFilesAdded([
         {

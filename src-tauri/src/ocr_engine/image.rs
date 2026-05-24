@@ -1,6 +1,8 @@
+use std::time::Instant;
+
 use image::{GrayImage, Luma};
-use imageproc::contrast::otsu_level;
 use imageproc::filter::median_filter;
+use imageproc::stats::histogram;
 use rayon::prelude::*;
 
 use crate::ocr_engine::error::PipelineError;
@@ -10,39 +12,84 @@ use crate::ocr_engine::types::{BinarizationMode, DeskewMode, OcrSettings};
 /// 1-bit bitonal image for CCITT G4 compression.
 #[derive(Clone, Debug)]
 pub struct ProcessedImage {
-    /// Grayscale image fed to Tesseract.
     pub ocr_image: GrayImage,
-    /// Bitonal (1-bit) version for CCITT compression, if applicable.
+    #[allow(dead_code)]
     pub bitonal: Option<BitonalImage>,
 }
 
 /// A 1-bit-per-pixel image suitable for CCITT G4 encoding.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct BitonalImage {
-    /// Packed bit data (MSB-first, row-major).
     pub data: Vec<u8>,
-    /// Image width in pixels.
     pub width: u32,
-    /// Image height in pixels.
     pub height: u32,
 }
 
-/// Applies denoising, binarization, morphology, and deskew to prepare an image for OCR.
+/// Applies preprocessing: denoise, binarization, morphology, deskew.
+///
+/// When `fast_path` is true, expensive operations (denoise, morphology, deskew)
+/// are skipped — the image is only binarized or passed through as grayscale.
+/// Callers should set `fast_path = true` for very large pages where quality
+/// is already limited by downscaling.
 pub fn preprocess(
     image: &GrayImage,
     settings: &OcrSettings,
+    fast_path: bool,
 ) -> Result<ProcessedImage, PipelineError> {
-    let denoised = apply_denoise(image, settings.denoise_level);
-    let threshold = otsu_level(&denoised);
-    let binarizable = is_binarizable(&denoised, threshold);
+    let t0 = Instant::now();
+
+    let denoised = if fast_path || settings.denoise_level == 0 {
+        if !fast_path {
+            tracing::debug!(target: "knox::image", "denoise: skipped (level=0)");
+        } else {
+            tracing::debug!(target: "knox::image", "denoise: fast-path skip");
+        }
+        image.clone()
+    } else {
+        let t = Instant::now();
+        let d = apply_denoise(image, settings.denoise_level);
+        tracing::debug!(target: "knox::image", elapsed_ms = t.elapsed().as_millis(), "denoise done");
+        d
+    };
+
+    let threshold = otsu_level_safe(&denoised);
+    let binarizable = is_binarizable_par(&denoised, threshold);
 
     if binarizable {
+        let t = Instant::now();
         let mut binary = apply_binarization(&denoised, settings);
-        binary = apply_morphology(&binary, settings.denoise_level);
-        let deskewed = apply_deskew(&binary, settings.deskew_mode)?;
-        let rethreshold = otsu_level(&deskewed);
-        let final_binary = otsu_binarize_with_threshold(&deskewed, rethreshold);
+        tracing::debug!(target: "knox::image", elapsed_ms = t.elapsed().as_millis(), "binarization done");
+
+        if fast_path || settings.denoise_level == 0 {
+            if !fast_path {
+                tracing::debug!(target: "knox::image", "morphology: skipped (level=0)");
+            } else {
+                tracing::debug!(target: "knox::image", "morphology: fast-path skip");
+            }
+        } else {
+            let t = Instant::now();
+            binary = apply_morphology(&binary, settings.denoise_level);
+            tracing::debug!(target: "knox::image", elapsed_ms = t.elapsed().as_millis(), "morphology done");
+        }
+
+        let deskewed = if fast_path {
+            tracing::debug!(target: "knox::image", "deskew: fast-path skip");
+            binary
+        } else {
+            let t = Instant::now();
+            let d = apply_deskew(&binary, settings.deskew_mode)?;
+            tracing::debug!(target: "knox::image", elapsed_ms = t.elapsed().as_millis(), "deskew done");
+            d
+        };
+
+        let t = Instant::now();
+        let rethreshold = otsu_level_safe(&deskewed);
+        let final_binary = otsu_binarize_with_threshold_par(&deskewed, rethreshold);
         let (data, width, height) = to_bitonal_1bpp(&final_binary);
+        tracing::debug!(target: "knox::image", elapsed_ms = t.elapsed().as_millis(), "bitonal pack done");
+
+        tracing::debug!(target: "knox::image", total_elapsed_ms = t0.elapsed().as_millis(), "preprocess (binarizable) complete");
         Ok(ProcessedImage {
             ocr_image: final_binary.clone(),
             bitonal: Some(BitonalImage {
@@ -52,7 +99,17 @@ pub fn preprocess(
             }),
         })
     } else {
-        let deskewed = apply_deskew(&denoised, settings.deskew_mode)?;
+        let deskewed = if fast_path {
+            tracing::debug!(target: "knox::image", "deskew: fast-path skip");
+            denoised
+        } else {
+            let t = Instant::now();
+            let d = apply_deskew(&denoised, settings.deskew_mode)?;
+            tracing::debug!(target: "knox::image", elapsed_ms = t.elapsed().as_millis(), "deskew done");
+            d
+        };
+
+        tracing::debug!(target: "knox::image", total_elapsed_ms = t0.elapsed().as_millis(), "preprocess (grayscale) complete");
         Ok(ProcessedImage {
             ocr_image: deskewed.clone(),
             bitonal: None,
@@ -65,18 +122,45 @@ fn apply_denoise(image: &GrayImage, level: u8) -> GrayImage {
         return image.clone();
     }
     let kernel = if level <= 2 { 3 } else { 5 };
-    let mut out = image.clone();
+    // Downscale very large images before denoise to avoid O(18M * kernel²) cost.
+    // A poster at 3000x6000 pixels would take minutes otherwise.
+    let working = maybe_downscale(image, 1200);
+    let mut out = working.clone();
     for _ in 0..level {
         out = median_filter(&out, kernel, kernel);
     }
+    // If we downscaled, upscale back to original size so the OCR
+    // coordinates map correctly to the original image dimensions.
+    if working.width() != image.width() || working.height() != image.height() {
+        out = image::imageops::resize(
+            &out,
+            image.width(),
+            image.height(),
+            image::imageops::FilterType::Triangle,
+        );
+    }
     out
+}
+
+/// Downscale image so the longest side is at most `max_dim`, preserving aspect ratio.
+fn maybe_downscale(image: &GrayImage, max_dim: u32) -> GrayImage {
+    let w = image.width();
+    let h = image.height();
+    let longest = w.max(h);
+    if longest <= max_dim {
+        return image.clone();
+    }
+    let scale = max_dim as f32 / longest as f32;
+    let nw = (w as f32 * scale).max(1.0) as u32;
+    let nh = (h as f32 * scale).max(1.0) as u32;
+    image::imageops::resize(image, nw, nh, image::imageops::FilterType::Triangle)
 }
 
 fn apply_binarization(image: &GrayImage, settings: &OcrSettings) -> GrayImage {
     match settings.binarization {
         BinarizationMode::Otsu => {
-            let threshold = otsu_level(image);
-            otsu_binarize_with_threshold(image, threshold)
+            let threshold = otsu_level_safe(image);
+            otsu_binarize_with_threshold_par(image, threshold)
         }
         BinarizationMode::BradleyRoth => {
             let block = (settings.denoise_level as u32).max(1) * 4 + 7;
@@ -90,10 +174,20 @@ fn apply_morphology(image: &GrayImage, level: u8) -> GrayImage {
     if level == 0 {
         return image.clone();
     }
-    let mut out = image.clone();
+    // Downscale before morphology to avoid O(4×18M) neighborhood operations on posters.
+    let working = maybe_downscale(image, 1200);
+    let mut out = working.clone();
     let iterations = (level / 2).max(1);
     for _ in 0..iterations {
         out = morphological_open_close(&out);
+    }
+    if working.width() != image.width() || working.height() != image.height() {
+        out = image::imageops::resize(
+            &out,
+            image.width(),
+            image.height(),
+            image::imageops::FilterType::Triangle,
+        );
     }
     out
 }
@@ -106,89 +200,107 @@ fn apply_deskew(image: &GrayImage, mode: DeskewMode) -> Result<GrayImage, Pipeli
     }
 }
 
-fn is_binarizable(image: &GrayImage, threshold: u8) -> bool {
-    let mut black = 0u64;
-    let mut total = 0u64;
-    for pixel in image.pixels() {
-        total += 1;
-        if pixel[0] <= threshold {
-            black += 1;
-        }
-    }
+fn is_binarizable_par(image: &GrayImage, threshold: u8) -> bool {
+    let total = (image.width() as u64) * (image.height() as u64);
     if total == 0 {
         return false;
     }
+    let black: u64 = image
+        .par_pixels()
+        .map(|p| if p[0] <= threshold { 1u64 } else { 0u64 })
+        .sum();
     let ratio = black as f64 / total as f64;
     (0.02..=0.7).contains(&ratio)
 }
 
-fn otsu_binarize_with_threshold(image: &GrayImage, threshold: u8) -> GrayImage {
+fn otsu_binarize_with_threshold_par(image: &GrayImage, threshold: u8) -> GrayImage {
     let mut out = image.clone();
-    for pixel in out.pixels_mut() {
-        let v = if pixel[0] > threshold { 255 } else { 0 };
-        *pixel = Luma([v]);
-    }
+    let raw = out.as_mut();
+    raw.par_iter_mut()
+        .for_each(|v| *v = if *v > threshold { 255 } else { 0 });
     out
 }
 
-/// Applies morphological opening (erode → dilate) followed by closing (dilate → erode)
-/// to remove small specks (noise) and fill small holes in a binary-like image.
-/// Uses a 3×3 structuring element. The order is: erode → dilate → dilate → erode,
-/// which is equivalent to open-close.
 fn morphological_open_close(image: &GrayImage) -> GrayImage {
-    let opened = dilate(&erode(image));
-    erode(&dilate(&opened))
+    let opened = dilate_par(&erode_par(image));
+    erode_par(&dilate_par(&opened))
 }
 
-fn erode(image: &GrayImage) -> GrayImage {
-    let mut out = image.clone();
+fn erode_par(image: &GrayImage) -> GrayImage {
     let width = image.width();
     let height = image.height();
-    for y in 1..height.saturating_sub(1) {
-        for x in 1..width.saturating_sub(1) {
-            let mut keep = true;
-            for dy in -1i32..=1 {
-                for dx in -1i32..=1 {
-                    let nx = (x as i32 + dx) as u32;
-                    let ny = (y as i32 + dy) as u32;
-                    if image.get_pixel(nx, ny)[0] == 0 {
-                        keep = false;
+    if width < 3 || height < 3 {
+        return image.clone();
+    }
+    let mut out = image.clone();
+    let src_raw = image.as_raw();
+    let w = width as usize;
+    let h = height as usize;
+
+    out.as_mut()
+        .par_chunks_exact_mut(w)
+        .enumerate()
+        .for_each(|(y, row_out)| {
+            if y == 0 || y >= h - 1 {
+                return;
+            }
+            for x in 1..w - 1 {
+                let mut keep = true;
+                for dy in -1i32..=1 {
+                    for dx in -1i32..=1 {
+                        let nx = (x as i32 + dx) as usize;
+                        let ny = (y as i32 + dy) as usize;
+                        if src_raw[ny * w + nx] == 0 {
+                            keep = false;
+                            break;
+                        }
+                    }
+                    if !keep {
                         break;
                     }
                 }
-                if !keep {
-                    break;
-                }
+                row_out[x] = if keep { 255 } else { 0 };
             }
-            out.put_pixel(x, y, if keep { Luma([255]) } else { Luma([0]) });
-        }
-    }
+        });
     out
 }
 
-fn dilate(image: &GrayImage) -> GrayImage {
-    let mut out = image.clone();
+fn dilate_par(image: &GrayImage) -> GrayImage {
     let width = image.width();
     let height = image.height();
-    for y in 1..height.saturating_sub(1) {
-        for x in 1..width.saturating_sub(1) {
-            let mut keep = false;
-            for dy in -1i32..=1 {
-                for dx in -1i32..=1 {
-                    let nx = (x as i32 + dx) as u32;
-                    let ny = (y as i32 + dy) as u32;
-                    if image.get_pixel(nx, ny)[0] == 255 {
-                        keep = true;
+    if width < 3 || height < 3 {
+        return image.clone();
+    }
+    let mut out = image.clone();
+    let src_raw = image.as_raw();
+    let w = width as usize;
+    let h = height as usize;
+
+    out.as_mut()
+        .par_chunks_exact_mut(w)
+        .enumerate()
+        .for_each(|(y, row_out)| {
+            if y == 0 || y >= h - 1 {
+                return;
+            }
+            for x in 1..w - 1 {
+                let mut keep = false;
+                for dy in -1i32..=1 {
+                    for dx in -1i32..=1 {
+                        let nx = (x as i32 + dx) as usize;
+                        let ny = (y as i32 + dy) as usize;
+                        if src_raw[ny * w + nx] == 255 {
+                            keep = true;
+                            break;
+                        }
+                    }
+                    if keep {
                         break;
                     }
                 }
-                if keep {
-                    break;
-                }
+                row_out[x] = if keep { 255 } else { 0 };
             }
-            out.put_pixel(x, y, if keep { Luma([255]) } else { Luma([0]) });
-        }
-    }
+        });
     out
 }
 
@@ -224,15 +336,6 @@ fn deskew_hough(image: &GrayImage) -> Result<GrayImage, PipelineError> {
     Ok(rotate_image(image, -mean))
 }
 
-/// Converts a grayscale image to a 1-bit-per-pixel packed byte buffer.
-///
-/// # Convention
-/// Black pixels (value 0) are encoded as bit `1`, white pixels (value 255) as bit `0`.
-/// This matches the `BlackIs1: true` convention used in `encode_ccitt_g4` in `pdf.rs`,
-/// and is the inverse of `imageproc`'s default convention where white = 1.
-///
-/// Bits are packed MSB-first within each byte, left-to-right across the row.
-/// Each row is padded to a full byte boundary.
 fn to_bitonal_1bpp(image: &GrayImage) -> (Vec<u8>, u32, u32) {
     let width = image.width();
     let height = image.height();
@@ -325,7 +428,7 @@ fn downscale_for_radon(image: &GrayImage, max_dim: u32) -> GrayImage {
     )
 }
 
-/// Down/up-samples the image to approximate `target_dpi`, relative to a 300 DPI baseline.
+#[allow(dead_code)]
 pub fn downsample_to_dpi(image: &GrayImage, target_dpi: u16) -> GrayImage {
     let scale = (target_dpi as f32 / 300.0).clamp(0.25, 4.0);
     if (scale - 1.0).abs() < 0.01 {
@@ -351,6 +454,54 @@ fn rotate_image(image: &GrayImage, angle_degrees: f32) -> GrayImage {
         imageproc::geometric_transformations::Interpolation::Bilinear,
         Luma([255]),
     )
+}
+
+/// Safe Otsu threshold computation using u64 to avoid overflow on large images.
+/// imageproc's `otsu_level` multiplies histogram counts by pixel intensities as u32,
+/// which overflows for images with >16M pixels (~u32::MAX / 255).
+fn otsu_level_safe(image: &GrayImage) -> u8 {
+    let hist = histogram(image);
+    let (width, height) = image.dimensions();
+    let total_weight = (width as u64) * (height as u64);
+
+    let total_pixel_sum: f64 = hist.channels[0]
+        .iter()
+        .enumerate()
+        .fold(0f64, |sum, (t, h)| sum + ((t as u64) * (*h as u64)) as f64);
+
+    let mut background_pixel_sum = 0f64;
+    let mut background_weight = 0u64;
+    let mut largest_variance = 0f64;
+    let mut best_threshold = 0u8;
+
+    for (threshold, hist_count) in hist.channels[0].iter().enumerate() {
+        background_weight += *hist_count as u64;
+        if background_weight == 0 {
+            continue;
+        }
+
+        let foreground_weight = total_weight - background_weight;
+        if foreground_weight == 0 {
+            break;
+        }
+
+        background_pixel_sum += (threshold as u64 * *hist_count as u64) as f64;
+        let foreground_pixel_sum = total_pixel_sum - background_pixel_sum;
+
+        let background_mean = background_pixel_sum / background_weight as f64;
+        let foreground_mean = foreground_pixel_sum / foreground_weight as f64;
+
+        let mean_diff_squared = (background_mean - foreground_mean).powi(2);
+        let intra_class_variance =
+            background_weight as f64 * foreground_weight as f64 * mean_diff_squared;
+
+        if intra_class_variance > largest_variance {
+            largest_variance = intra_class_variance;
+            best_threshold = threshold as u8;
+        }
+    }
+
+    best_threshold
 }
 
 #[cfg(test)]
@@ -409,43 +560,39 @@ mod tests {
     fn denoise_level_one_changes_image() {
         let img = make_checkerboard(10, 10);
         let result = apply_denoise(&img, 1);
-        // Median filter at level 1 should change checkerboard
         assert_ne!(result.as_raw(), img.as_raw());
     }
 
     #[test]
-    fn otsu_binarize_threshold_low_makes_mostly_black() {
+    fn otsu_binarize_threshold_low_makes_mostly_white() {
         let img = make_white(4, 4);
-        // White image (all 255), threshold=200: 255 > 200 → all white
-        let result = otsu_binarize_with_threshold(&img, 200);
+        let result = otsu_binarize_with_threshold_par(&img, 200);
         assert!(result.pixels().all(|p| p[0] == 255));
     }
 
     #[test]
-    fn otsu_binarize_threshold_high_makes_mostly_white() {
+    fn otsu_binarize_threshold_high_makes_mostly_black() {
         let img = make_black(4, 4);
-        // Black image (all 0), threshold=100: 0 > 100 → false, all black
-        let result = otsu_binarize_with_threshold(&img, 100);
+        let result = otsu_binarize_with_threshold_par(&img, 100);
         assert!(result.pixels().all(|p| p[0] == 0));
     }
 
     #[test]
     fn is_binarizable_all_white_is_false() {
         let img = make_white(10, 10);
-        assert!(!is_binarizable(&img, 128));
+        assert!(!is_binarizable_par(&img, 128));
     }
 
     #[test]
     fn is_binarizable_all_black_is_false() {
         let img = make_black(10, 10);
-        assert!(!is_binarizable(&img, 128));
+        assert!(!is_binarizable_par(&img, 128));
     }
 
     #[test]
     fn is_binarizable_checkerboard_is_true() {
         let img = make_checkerboard(10, 10);
-        // black ratio should be ~0.5, within [0.02, 0.7]
-        assert!(is_binarizable(&img, 128));
+        assert!(is_binarizable_par(&img, 128));
     }
 
     #[test]
@@ -475,8 +622,6 @@ mod tests {
         let (data, w, h) = to_bitonal_1bpp(&img);
         assert_eq!(w, 16);
         assert_eq!(h, 16);
-        // Each row = (16 + 7) / 8 = 2 bytes
-        // 16 rows = 32 bytes
         assert_eq!(data.len(), 32);
     }
 
@@ -488,7 +633,6 @@ mod tests {
             ..default_settings()
         };
         let result = apply_binarization(&img, &settings);
-        // All pixels should be 0 or 255
         for p in result.pixels() {
             assert!(p[0] == 0 || p[0] == 255, "pixel value must be binary");
         }
@@ -498,7 +642,6 @@ mod tests {
     fn est_skew_clean_image_near_zero() {
         let img = make_checkerboard(100, 100);
         let angle = estimate_skew_angle_radon(&img).unwrap();
-        // Should be close to 0 for a symmetric image
         assert!(angle.abs() < 2.0, "angle should be near 0");
     }
 
@@ -507,5 +650,62 @@ mod tests {
         let img = make_checkerboard(10, 10);
         let result = apply_morphology(&img, 0);
         assert_eq!(result.as_raw(), img.as_raw());
+    }
+
+    #[test]
+    fn fast_path_skips_denoise_and_deskew() {
+        let img = make_checkerboard(20, 20);
+        let settings = OcrSettings {
+            denoise_level: 3,
+            deskew_mode: DeskewMode::Radon,
+            ..default_settings()
+        };
+        let result = preprocess(&img, &settings, true).unwrap();
+        // Fast path should still produce a valid result
+        assert_eq!(result.ocr_image.width(), 20);
+        assert_eq!(result.ocr_image.height(), 20);
+    }
+
+    #[test]
+    fn preprocess_binarizable_produces_bitonal() {
+        let img = make_checkerboard(20, 20);
+        let result = preprocess(&img, &default_settings(), false).unwrap();
+        assert!(result.bitonal.is_some());
+        assert_eq!(result.bitonal.as_ref().unwrap().width, 20);
+    }
+
+    #[test]
+    fn preprocess_all_white_produces_no_bitonal() {
+        let img = make_white(20, 20);
+        let result = preprocess(&img, &default_settings(), false).unwrap();
+        assert!(result.bitonal.is_none());
+    }
+
+    #[test]
+    fn denoise_downscales_large_images() {
+        let img = make_checkerboard(2400, 2400);
+        let result = apply_denoise(&img, 2);
+        assert_eq!(result.dimensions(), (2400, 2400));
+    }
+
+    #[test]
+    fn morphology_downscales_large_images() {
+        let img = make_checkerboard(2400, 2400);
+        let result = apply_morphology(&img, 2);
+        assert_eq!(result.dimensions(), (2400, 2400));
+    }
+
+    #[test]
+    fn denoise_small_image_unchanged_dimensions() {
+        let img = make_checkerboard(100, 100);
+        let result = apply_denoise(&img, 2);
+        assert_eq!(result.dimensions(), (100, 100));
+    }
+
+    #[test]
+    fn morphology_small_image_unchanged_dimensions() {
+        let img = make_checkerboard(100, 100);
+        let result = apply_morphology(&img, 2);
+        assert_eq!(result.dimensions(), (100, 100));
     }
 }

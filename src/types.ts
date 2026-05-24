@@ -22,7 +22,6 @@ export type CompressionMode = "ccitt" | "flate";
 
 /** Full set of OCR pipeline options passed from the UI to the Rust backend. */
 export interface OcrSettings {
-  cpuCores: number;
   memoryPages: number;
   binarization: BinarizationMode;
   fixedThreshold: number;

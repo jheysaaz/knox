@@ -6,7 +6,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ProfileValues } from "@/components/advanced-options";
 
 const defaultValues: ProfileValues = {
-  cpuCores: 6,
   memoryPages: 30,
   binarization: "otsu",
   fixedThreshold: 128,
@@ -17,7 +16,7 @@ const defaultValues: ProfileValues = {
   compression: "ccitt",
   resolution: "300",
   archiveEnforcement: false,
-  languages: "eng",
+  languages: ["eng"],
 };
 
 const renderWithTooltip = (ui: React.ReactElement) =>
@@ -42,14 +41,13 @@ describe("AdvancedOptions", () => {
 
   it("shows settings panel when on Custom tab", () => {
     // Using modified values forces Custom tab detection
-    const customValues = { ...defaultValues, cpuCores: 4 };
     renderWithTooltip(
-      <AdvancedOptions value={customValues} onChange={onChange} />,
+      <AdvancedOptions value={defaultValues} onChange={onChange} />,
     );
     // Click the Custom tab to activate it
     const customTab = screen.getByText("Custom");
     customTab.click();
-    expect(screen.getByText("Thread Pool Capacity")).toBeInTheDocument();
+    expect(screen.getByText("In-Memory Page Cap")).toBeInTheDocument();
   });
 
   it("shows fixed threshold slider when binarization is fixed", async () => {

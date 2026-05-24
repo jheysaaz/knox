@@ -16,6 +16,25 @@ vi.mock("@tauri-apps/api/window", () => ({
   }),
 }));
 
+vi.mock("@/components/left-panel", async () => {
+  const React = await import("react");
+  return {
+    default: (props: any) =>
+      React.createElement("div", null,
+        React.createElement("div", null, "Drop PDF files here"),
+        React.createElement("div", null, "Output Directory"),
+        React.createElement("button", { onClick: () => props.onStart({}) }, "Start OCR Processing"),
+      ),
+  };
+});
+
+vi.mock("@/components/right-panel", async () => {
+  const React = await import("react");
+  return {
+    default: () => React.createElement("div", null, "Right Panel"),
+  };
+});
+
 beforeEach(() => {
   vi.mocked(invoke).mockResolvedValue({ jobs: [], isRunning: false });
 });

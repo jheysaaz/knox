@@ -1,19 +1,17 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { Toaster } from "sonner";
-import { FileDropZone } from "@/components/file-dropzone";
-import { OutputDirectory } from "@/components/output-directory";
-import { QueueView } from "@/components/queue-view";
-import { LogPanel } from "@/components/log-panel";
-import { AdvancedOptions, type ProfileValues } from "@/components/advanced-options";
 import { Header } from "@/components/header";
-import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { GREETING } from "@/hooks/useGreeting";
 import { useLogger } from "@/hooks/useLogger";
 import { useQueue } from "@/hooks/useQueue";
+import type { ProfileValues } from "@/components/advanced-options";
+
+const LeftPanel = lazy(() => import("./components/left-panel"));
+const RightPanel = lazy(() => import("./components/right-panel"));
 
 export default function App() {
-
   const { logs, addLog } = useLogger();
   const {
     files,
@@ -30,7 +28,6 @@ export default function App() {
     handleStop,
   } = useQueue(addLog);
   const [settings, setSettings] = useState<ProfileValues>({
-    cpuCores: Math.max(1, (navigator.hardwareConcurrency || 8) - 2),
     memoryPages: 30,
     binarization: "otsu",
     fixedThreshold: 128,
@@ -41,7 +38,7 @@ export default function App() {
     compression: "ccitt",
     resolution: "300",
     archiveEnforcement: false,
-    languages: "eng",
+    languages: ["eng", "spa"],
   });
 
   return (
@@ -55,46 +52,33 @@ export default function App() {
                 showActivity={showActivity}
                 onToggleActivity={() => setShowActivity((v) => !v)}
               />
-              <div className="space-y-4">
-                <FileDropZone onFilesAdded={handleFilesAdded} />
-                <OutputDirectory value={outputDir} onChange={setOutputDir} />
-                <AdvancedOptions value={settings} onChange={setSettings} />
-                <Button className="w-full" size="lg" onClick={() => handleStart(settings)}>
-                  {isRunning ? "Add to Queue" : "Start OCR Processing"}
-                </Button>
-              </div>
+              <Suspense fallback={<Spinner />}>
+                <LeftPanel
+                  onFilesAdded={handleFilesAdded}
+                  outputDir={outputDir}
+                  onOutputDirChange={setOutputDir}
+                  settings={settings}
+                  onSettingsChange={setSettings}
+                  isRunning={isRunning}
+                  onStart={handleStart}
+                />
+              </Suspense>
             </div>
           </div>
 
           <div className="flex-[2] min-w-0 flex flex-col gap-2">
-            {showActivity ? (
-              <>
-                <div className="flex-[3] min-h-0">
-                  <QueueView
-                    files={files}
-                    onFileRemove={handleFileRemove}
-                    onClear={handleClearFiles}
-                    onReprocess={handleFileReprocess}
-                    isRunning={isRunning}
-                    onStop={handleStop}
-                  />
-                </div>
-                <div className="flex-[1] min-h-0">
-                  <LogPanel logs={logs} />
-                </div>
-              </>
-            ) : (
-              <div className="flex-1 min-h-0">
-                <QueueView
-                  files={files}
-                  onFileRemove={handleFileRemove}
-                  onClear={handleClearFiles}
-                  onReprocess={handleFileReprocess}
-                  isRunning={isRunning}
-                  onStop={handleStop}
-                />
-              </div>
-            )}
+            <Suspense fallback={<Spinner />}>
+              <RightPanel
+                files={files}
+                onFileRemove={handleFileRemove}
+                onClear={handleClearFiles}
+                onReprocess={handleFileReprocess}
+                isRunning={isRunning}
+                onStop={handleStop}
+                showActivity={showActivity}
+                logs={logs}
+              />
+            </Suspense>
           </div>
         </div>
       </TooltipProvider>

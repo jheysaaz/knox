@@ -43,8 +43,19 @@
 
 ## OCR Pipeline (Rust-native)
 ```
-PDF load → page image extraction → downsample → denoise →
+PDF load → read raw bytes
+  → per page: try PdfiumEngine::render_page()
+    → Ok(Some(img)): use pdfium raster (handles AcroForms, all filters)
+    → Ok(None) / Err: fallback to lopdf XObject extraction
+  → downsample → denoise →
 binarize (Otsu/Bradley-Roth/Fixed) → morphology → deskew (Radon/Hough) →
 Tesseract FFI OCR → compress (CCITT G4 / FlateDecode) →
 replace image streams → save output
 ```
+
+## Hybrid Rendering Architecture
+| Module | Role |
+|---|---|
+| `render.rs` | PdfiumEngine wrapper with runtime dylib loading and fallback |
+| `pdf.rs` | Lopdf extraction (fallback) + output encoding/saving |
+| `engine.rs` | Hybrid loop: tries pdfium first, falls back per page |

@@ -6,10 +6,15 @@
 - Wraps lopdf::Document::load
 - Returns PdfParse error on failure
 
-### `extract_page_images(doc, existing_text) -> Vec<PdfPageInfo>`
-- Iterates pages, extracts XObject images
+### `for_each_page_image(doc, existing_text, callback)`
+- Iterates pages, extracts XObject images via callback
 - Skips pages with text content if existing_text=Skip
-- Decodes streams (FlateDecode, DCTDecode, JBIG2Decode, raw)
+- Decodes streams (FlateDecode, DCTDecode, JBIG2Decode, raw, CCITT)
+- Used as fallback when pdfium rendering is unavailable
+
+### `extract_lopdf_page(doc, page_number, existing_text) -> Option<GrayImage>`
+- Per-page extraction helper refactored from `for_each_page_image`
+- Returns `None` when page has text and mode is Skip
 
 ### `page_has_text(doc, page_id) -> bool`
 - Parses page content stream for text operators: Tj, TJ, ', "
@@ -40,3 +45,5 @@
 - finalize with PDF/A adds XMP metadata
 - page_has_text detects Tj/TJ operators
 - page_has_text returns false for no-text pages
+- extract_lopdf_page returns None for pages with text when mode=Skip
+- extract_lopdf_page returns Some(GrayImage) for pages without text

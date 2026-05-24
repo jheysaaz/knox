@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::sleep;
 
@@ -18,6 +20,16 @@ fn global_runtime() -> &'static Arc<RuntimeResources> {
     crate::RUNTIME.get_or_init(|| Arc::new(RuntimeResources::new()))
 }
 
+/// Returns the writable tessdata directory inside the app's local data directory.
+/// This is where `ensure_language_packs` downloads missing language data.
+fn app_tessdata_dir(app: &AppHandle) -> PathBuf {
+    app.path()
+        .app_local_data_dir()
+        .ok()
+        .map(|d| d.join("tessdata"))
+        .unwrap_or_else(|| PathBuf::from("tessdata"))
+}
+
 fn sanitize_processing_config(
     app: &AppHandle,
     _input: &OcrOptions,
@@ -29,6 +41,7 @@ fn sanitize_processing_config(
             .and_then(|cfg| cfg.tessdata_path.as_ref())
             .filter(|v| !v.is_empty())
             .map(PathBuf::from),
+        Some(app_tessdata_dir(app)),
         app.path()
             .resource_dir()
             .ok()
@@ -58,6 +71,121 @@ fn sanitize_processing_config(
         languages,
         thread_pool_size,
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguagePackResult {
+    pub downloaded: Vec<String>,
+    pub skipped: Vec<String>,
+    pub errors: HashMap<String, String>,
+}
+
+#[tauri::command]
+pub fn ensure_language_packs(
+    app: AppHandle,
+    languages: Vec<String>,
+) -> Result<LanguagePackResult, CommandError> {
+    if languages.is_empty() {
+        return Ok(LanguagePackResult {
+            downloaded: vec![],
+            skipped: vec![],
+            errors: HashMap::new(),
+        });
+    }
+
+    let data_dir = app_tessdata_dir(&app);
+    std::fs::create_dir_all(&data_dir)
+        .map_err(|e| CommandError::io(format!("Failed to create tessdata dir: {e}")))?;
+
+    let mut result = LanguagePackResult {
+        downloaded: vec![],
+        skipped: vec![],
+        errors: HashMap::new(),
+    };
+
+    for lang in &languages {
+        let trained_path = data_dir.join(format!("{lang}.traineddata"));
+        if trained_path.exists() {
+            tracing::debug!(target: "knox::languages", lang, "already exists, skipping");
+            result.skipped.push(lang.clone());
+            continue;
+        }
+
+        // Try fast variant first, fall back to standard repo
+        let urls = [
+            format!("https://github.com/tesseract-ocr/tessdata_fast/raw/main/{lang}.traineddata"),
+            format!("https://github.com/tesseract-ocr/tessdata/raw/main/{lang}.traineddata"),
+        ];
+
+        let mut downloaded_ok = false;
+        for url in &urls {
+            tracing::info!(target: "knox::languages", lang, url, "downloading");
+            match reqwest::blocking::get(url) {
+                Ok(response) => {
+                    let status = response.status();
+                    let body = match response.bytes() {
+                        Ok(b) => b.to_vec(),
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "knox::languages",
+                                lang,
+                                error = %e,
+                                "failed to read response body"
+                            );
+                            continue;
+                        }
+                    };
+                    if !status.is_success() || body.len() < 100 {
+                        tracing::warn!(
+                            target: "knox::languages",
+                            lang,
+                            status = %status,
+                            size = body.len(),
+                            "invalid traineddata response"
+                        );
+                        continue;
+                    }
+                    if let Err(e) = std::fs::write(&trained_path, &body) {
+                        tracing::warn!(
+                            target: "knox::languages",
+                            lang,
+                            error = %e,
+                            "failed to write traineddata file"
+                        );
+                        continue;
+                    }
+                    tracing::info!(
+                        target: "knox::languages",
+                        lang,
+                        size = body.len(),
+                        "downloaded successfully"
+                    );
+                    downloaded_ok = true;
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "knox::languages",
+                        lang,
+                        url,
+                        error = %e,
+                        "download failed, trying next source"
+                    );
+                }
+            }
+        }
+
+        if downloaded_ok {
+            result.downloaded.push(lang.clone());
+        } else {
+            result
+                .errors
+                .insert(lang.clone(), "All download sources failed".to_string());
+        }
+    }
+
+    Ok(result)
 }
 
 fn validate_input_path(path: &str) -> Result<(), CommandError> {
@@ -348,15 +476,8 @@ pub fn start_queue(
                 };
                 let options = job_options.unwrap_or(OcrOptions {
                     output_type: OutputType::Pdfa,
-                    lossy_compression: true,
-                    jpeg_quality: 60,
-                    deskew: false,
-                    clean: false,
-                    remove_background: false,
-                    preserve_metadata: true,
                     safe_mode: false,
                     max_concurrency: None,
-                    per_job_threads: None,
                     binarization: crate::ocr_engine::types::BinarizationMode::Otsu,
                     fixed_threshold: 128,
                     deskew_mode: crate::ocr_engine::types::DeskewMode::Radon,
@@ -442,6 +563,9 @@ pub fn start_queue(
                     let engine = crate::ocr_engine::engine::Engine::new(
                         runtime,
                         app.state::<crate::ocr_engine::engine::SharedTessPool>()
+                            .inner()
+                            .clone(),
+                        app.state::<std::sync::Arc<crate::ocr_engine::render::PdfiumEngine>>()
                             .inner()
                             .clone(),
                     );

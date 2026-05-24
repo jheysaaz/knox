@@ -62,8 +62,6 @@ pub enum PipelineStatus {
     Processing,
     /// Running Tesseract OCR recognition.
     Ocr,
-    /// Encoding and compressing the output stream.
-    Compressing,
     /// File completed successfully.
     Completed,
     /// File processing failed.

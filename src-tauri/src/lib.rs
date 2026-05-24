@@ -70,15 +70,8 @@ pub struct FileMetadata {
 #[serde(rename_all = "camelCase")]
 pub struct OcrOptions {
     pub output_type: OutputType,
-    pub lossy_compression: bool,
-    pub jpeg_quality: u8,
-    pub deskew: bool,
-    pub clean: bool,
-    pub remove_background: bool,
-    pub preserve_metadata: bool,
     pub safe_mode: bool,
     pub max_concurrency: Option<u8>,
-    pub per_job_threads: Option<u8>,
     pub binarization: ocr_engine::types::BinarizationMode,
     pub fixed_threshold: u8,
     pub deskew_mode: ocr_engine::types::DeskewMode,
@@ -179,6 +172,35 @@ pub fn resolve_tessdata_path() -> Option<String> {
     .map(|p| p.to_string_lossy().to_string())
 }
 
+pub fn resolve_pdfium_path(app: &tauri::AppHandle) -> Option<String> {
+    use std::path::PathBuf;
+    [
+        std::env::var("PDFIUM_LIB_PATH").ok().map(PathBuf::from),
+        app.path()
+            .resource_dir()
+            .ok()
+            .map(|d| d.join("pdfium").join(pdfium_lib_name())),
+        Some(PathBuf::from("/opt/homebrew/lib/libpdfium.dylib")),
+        Some(PathBuf::from("/usr/local/lib/libpdfium.so")),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|p| p.exists())
+    .map(|p| p.to_string_lossy().to_string())
+}
+
+fn pdfium_lib_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "libpdfium.dylib"
+    } else if cfg!(target_os = "linux") {
+        "libpdfium.so"
+    } else if cfg!(target_os = "windows") {
+        "pdfium.dll"
+    } else {
+        "libpdfium.so"
+    }
+}
+
 fn seed_tess_pool(pool: ocr_engine::engine::SharedTessPool) {
     let tessdata_path = resolve_tessdata_path();
     let Some(path) = tessdata_path else {
@@ -213,7 +235,7 @@ pub fn run() {
         )
         .with_writer(std::io::stderr)
         .init();
-    START_TIME.get_or_init(|| Instant::now());
+    START_TIME.get_or_init(Instant::now);
     tracing::info!("application started");
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -240,6 +262,12 @@ pub fn run() {
             seed_tess_pool(tess_pool.clone());
             app.manage(tess_pool);
 
+            // Create PdfiumEngine with runtime dylib loading.
+            // If the dylib is not found, it falls back to lopdf extraction silently.
+            let pdfium_path = crate::resolve_pdfium_path(app.handle()).unwrap_or_default();
+            let pdfium_engine = Arc::new(ocr_engine::render::PdfiumEngine::new(&pdfium_path));
+            app.manage(pdfium_engine);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -253,7 +281,8 @@ pub fn run() {
             commands::clear_history,
             commands::write_log_file,
             commands::get_file_metadata,
-            commands::log_window_shown
+            commands::log_window_shown,
+            commands::ensure_language_packs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

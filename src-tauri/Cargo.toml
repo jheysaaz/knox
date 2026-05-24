@@ -39,6 +39,9 @@ leptonica-sys = "0.4"
 flate2 = "1"
 futures = "0.3"
 pdfluent-jbig2 = "0.2.2"
+pdfluent-ccitt = "0.2"
+reqwest = { version = "0.12", features = ["blocking", "rustls-tls"], default-features = false }
+pdfium-render = "0.8"
 
 [profile.release]
 lto = true

@@ -21,4 +21,8 @@ pub enum PipelineError {
     /// Pipeline processing was cancelled by the user.
     #[error("Cancelled")]
     Cancelled,
+    /// Error from the Pdfium rendering layer. The engine falls back to lopdf
+    /// extraction when this occurs, so this error is non-fatal at the page level.
+    #[error("PDFium error: {0}")]
+    Pdfium(String),
 }

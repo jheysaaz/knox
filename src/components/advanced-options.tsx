@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from "react";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -26,13 +25,13 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { LanguageSelect } from "@/components/language-select";
 
 type ProfileKey = "balanced" | "max-compression" | "high-fidelity";
 type TabKey = ProfileKey | "custom";
 
 /** Values for all advanced OCR settings configurable through the UI. */
 export interface ProfileValues {
-  cpuCores: number;
   memoryPages: number;
   binarization: "otsu" | "bradley-roth" | "fixed";
   fixedThreshold: number;
@@ -43,12 +42,11 @@ export interface ProfileValues {
   compression: "ccitt" | "flate";
   resolution: string;
   archiveEnforcement: boolean;
-  languages: string;
+  languages: string[];
 }
 
-const PROFILES: Record<ProfileKey, (cores: number) => ProfileValues> = {
-  balanced: (c) => ({
-    cpuCores: Math.max(1, c - 2),
+const PROFILES: Record<ProfileKey, ProfileValues> = {
+  balanced: {
     memoryPages: 30,
     binarization: "otsu",
     fixedThreshold: 128,
@@ -56,13 +54,12 @@ const PROFILES: Record<ProfileKey, (cores: number) => ProfileValues> = {
     denoiseLevel: 2,
     existingText: "skip",
     psm: "auto",
-    compression: "ccitt",
+    compression: "flate",
     resolution: "300",
     archiveEnforcement: false,
-    languages: "eng",
-  }),
-  "max-compression": (c) => ({
-    cpuCores: c,
+    languages: ["eng", "spa"],
+  },
+  "max-compression": {
     memoryPages: 15,
     binarization: "otsu",
     fixedThreshold: 128,
@@ -73,10 +70,9 @@ const PROFILES: Record<ProfileKey, (cores: number) => ProfileValues> = {
     compression: "ccitt",
     resolution: "150",
     archiveEnforcement: false,
-    languages: "eng",
-  }),
-  "high-fidelity": (c) => ({
-    cpuCores: Math.max(1, Math.floor(c / 2)),
+    languages: ["eng", "spa"],
+  },
+  "high-fidelity": {
     memoryPages: 50,
     binarization: "fixed",
     fixedThreshold: 128,
@@ -87,8 +83,8 @@ const PROFILES: Record<ProfileKey, (cores: number) => ProfileValues> = {
     compression: "flate",
     resolution: "600",
     archiveEnforcement: true,
-    languages: "eng",
-  }),
+    languages: ["eng", "spa"],
+  },
 };
 
 /** Small tooltip icon that shows a help text on hover. */
@@ -125,31 +121,6 @@ function SettingsPanel({
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Hardware Allocation
         </h3>
-
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="text-sm font-medium whitespace-nowrap">
-                Thread Pool Capacity
-              </span>
-              <InfoTip>
-                Limits the number of concurrent worker threads allocated to
-                Rayon. Reserving at least 1 or 2 threads keeps the Host OS and
-                Tauri UI smooth.
-              </InfoTip>
-            </div>
-            <span className="text-sm tabular-nums text-muted-foreground shrink-0 w-6 text-right">
-              {values.cpuCores}
-            </span>
-          </div>
-          <Slider
-            min={1}
-            max={16}
-            step={1}
-            value={[values.cpuCores]}
-            onValueChange={([v]) => onChange({ cpuCores: v })}
-          />
-        </div>
 
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-4">
@@ -196,7 +167,9 @@ function SettingsPanel({
           </div>
           <Select
             value={values.binarization}
-            onValueChange={(v) => onChange({ binarization: v as "otsu" | "bradley-roth" | "fixed" })}
+            onValueChange={(v) =>
+              onChange({ binarization: v as "otsu" | "bradley-roth" | "fixed" })
+            }
           >
             <SelectTrigger className="w-40">
               <SelectValue />
@@ -227,13 +200,13 @@ function SettingsPanel({
                 {values.fixedThreshold}
               </span>
             </div>
-              <Slider
-                min={0}
-                max={255}
-                step={1}
-                value={[values.fixedThreshold]}
-                onValueChange={([v]) => onChange({ fixedThreshold: v })}
-              />
+            <Slider
+              min={0}
+              max={255}
+              step={1}
+              value={[values.fixedThreshold]}
+              onValueChange={([v]) => onChange({ fixedThreshold: v })}
+            />
           </div>
         )}
 
@@ -250,7 +223,9 @@ function SettingsPanel({
           </div>
           <Select
             value={values.deskew}
-            onValueChange={(v) => onChange({ deskew: v as "radon" | "hough" | "disabled" })}
+            onValueChange={(v) =>
+              onChange({ deskew: v as "radon" | "hough" | "disabled" })
+            }
           >
             <SelectTrigger className="w-40">
               <SelectValue />
@@ -309,22 +284,28 @@ function SettingsPanel({
           </div>
           <RadioGroup
             value={values.existingText}
-            onValueChange={(v) => onChange({ existingText: v as "skip" | "rasterize" })}
+            onValueChange={(v) =>
+              onChange({ existingText: v as "skip" | "rasterize" })
+            }
           >
-            <RadioGroupItem value="skip">
-              <div className="flex flex-col">
-                <span className="text-sm font-medium">
-                  Skip Native Text Pages
-                </span>
-              </div>
-            </RadioGroupItem>
-            <RadioGroupItem value="rasterize">
-              <div className="flex flex-col">
-                <span className="text-sm font-medium">
-                  Force Rasterize &amp; Overwrite
-                </span>
-              </div>
-            </RadioGroupItem>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="skip" id="existing-skip" />
+              <label
+                htmlFor="existing-skip"
+                className="text-sm font-medium cursor-pointer"
+              >
+                Skip Native Text Pages
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="rasterize" id="existing-rasterize" />
+              <label
+                htmlFor="existing-rasterize"
+                className="text-sm font-medium cursor-pointer"
+              >
+                Force Rasterize &amp; Overwrite
+              </label>
+            </div>
           </RadioGroup>
         </div>
 
@@ -341,7 +322,9 @@ function SettingsPanel({
           </div>
           <Select
             value={values.psm}
-            onValueChange={(v) => onChange({ psm: v as "auto" | "block" | "column" | "sparse" })}
+            onValueChange={(v) =>
+              onChange({ psm: v as "auto" | "block" | "column" | "sparse" })
+            }
           >
             <SelectTrigger className="w-40">
               <SelectValue />
@@ -357,18 +340,19 @@ function SettingsPanel({
           </Select>
         </div>
 
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-sm font-medium whitespace-nowrap">Languages</span>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-1.5 min-w-0 pt-0.5">
+            <span className="text-sm font-medium whitespace-nowrap">
+              Languages
+            </span>
             <InfoTip>
-              Tesseract language packs to load, separated by + (e.g. eng+spa).
+              Tesseract language packs to load. Missing packs are automatically
+              downloaded before processing starts.
             </InfoTip>
           </div>
-          <Input
+          <LanguageSelect
             value={values.languages}
-            onChange={(e) => onChange({ languages: e.target.value })}
-            className="w-40"
-            placeholder="eng+spa"
+            onChange={(v) => onChange({ languages: v })}
           />
         </div>
       </div>
@@ -392,7 +376,9 @@ function SettingsPanel({
           </div>
           <Select
             value={values.compression}
-            onValueChange={(v) => onChange({ compression: v as "ccitt" | "flate" })}
+            onValueChange={(v) =>
+              onChange({ compression: v as "ccitt" | "flate" })
+            }
           >
             <SelectTrigger className="w-44">
               <SelectValue />
@@ -465,24 +451,18 @@ export function AdvancedOptions({
   onChange: (next: ProfileValues) => void;
 }) {
   const [customOverride, setCustomOverride] = useState(false);
-  const cores = useMemo(() => navigator.hardwareConcurrency || 8, []);
-
-  const getProfile = useCallback(
-    (key: ProfileKey): ProfileValues => PROFILES[key](cores),
-    [cores],
-  );
 
   const activeTab = useMemo<TabKey>(() => {
     if (customOverride) return "custom";
     for (const key of Object.keys(PROFILES) as ProfileKey[]) {
-      const profile = getProfile(key);
+      const profile = PROFILES[key];
       const matches = (Object.keys(profile) as (keyof ProfileValues)[]).every(
         (field) => profile[field] === value[field],
       );
       if (matches) return key;
     }
     return "custom";
-  }, [getProfile, value, customOverride]);
+  }, [value, customOverride]);
 
   const handleTabChange = useCallback(
     (tab: string) => {
@@ -492,12 +472,10 @@ export function AdvancedOptions({
         return;
       }
       setCustomOverride(false);
-      onChange(getProfile(key));
+      onChange(PROFILES[key]);
     },
-    [getProfile, onChange],
+    [onChange],
   );
-
-
 
   const handleChange = useCallback(
     (patch: Partial<ProfileValues>) => {

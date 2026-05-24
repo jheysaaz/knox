@@ -6,13 +6,15 @@ Offline desktop app for batch OCR, cleaning, and compression of PDFs using a Rus
 ## Tech Stack
 - **Frontend**: React 19, TypeScript 5.8, Tailwind CSS 4, shadcn/ui, Vite 7
 - **Desktop**: Tauri v2 (Rust backend)
-- **Rust**: Edition 2024, tokio (async), rayon (CPU parallelism), tesseract-sys/leptonica-sys (OCR FFI), lopdf (PDF), image/imageproc (preprocessing)
+- **Rust**: Edition 2024, tokio (async), rayon (CPU parallelism), tesseract-sys/leptonica-sys (OCR FFI), lopdf/pdfium-render (PDF), image/imageproc (preprocessing)
 - **Package**: pnpm 10+, Node 22+
 
 ## Architecture
 ```
 UI (React) → Tauri invoke() → Rust Commands → Queue → OCR Engine (Tesseract FFI)
-                                                                ↓
+                                                                      ↓
+PDF page extraction: PdfiumEngine (primary) → fallback → lopdf extraction
+                                                                      ↓
 Events: pipeline-progress, jobProgress, jobFinished, queueState, historyUpdated
 ```
 
@@ -49,7 +51,7 @@ pnpm tauri build       # Production build
 | `src/types.ts` | Shared TypeScript types |
 | `src-tauri/src/lib.rs` | All Tauri commands (11 total) |
 | `src-tauri/src/security.rs` | Path validation |
-| `src-tauri/src/ocr_engine/` | Full OCR pipeline (11 modules) |
+| `src-tauri/src/ocr_engine/` | Full OCR pipeline (12 modules) |
 | `docs/spec.md` | Product spec |
 | `docs/architecture.md` | Architecture overview |
 | `docs/specs/` | Granular component/module specs |
@@ -105,6 +107,7 @@ For every new feature or change, follow this order:
 | `image.rs` | Preprocessing: denoise → binarize → deskew → bitonal |
 | `ocr.rs` | Safe Tesseract FFI wrapper (with panic isolation) |
 | `pdf.rs` | Load, extract, encode (CCITT G4/Flate), replace, save |
+| `render.rs` | PDFium hybrid rendering (primary extraction, falls back to lopdf) |
 | `progress.rs` | Atomic progress tracker → Tauri events |
 | `types.rs` | Shared schema (enums, config structs) |
 | `error.rs` | `PipelineError` enum |

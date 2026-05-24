@@ -45,7 +45,6 @@ describe("types", () => {
 
   it("OcrSettings can be constructed", () => {
     const settings: OcrSettings = {
-      cpuCores: 6,
       memoryPages: 30,
       binarization: "otsu",
       fixedThreshold: 128,
@@ -58,6 +57,6 @@ describe("types", () => {
       archiveEnforcement: false,
       languages: "eng",
     };
-    expect(settings.cpuCores).toBe(6);
+    expect(settings.memoryPages).toBe(30);
   });
 });

@@ -12,14 +12,15 @@ Tests are placed in two locations:
 ## Module Coverage
 
 | Module | Test Type | What to Test |
-|---|---|---|
+|---|---|---|---|
 | `security.rs` | Unit | Path validation, output path dedup |
 | `config.rs` | Unit | Effective concurrency calculation |
 | `runtime.rs` | Unit | Pool + semaphore construction |
 | `ingest.rs` | Unit | Channel send/close behavior |
 | `progress.rs` | Unit | Counter increments, avg computation, div-by-zero |
 | `image.rs` | Unit | Denoise, binarize, deskew, morphology, bitonal packing, DPI |
-| `pdf.rs` | Unit | Encode functions, stream dict fields, decode_image, page_has_text, finalize |
+| `pdf.rs` | Unit | Encode functions, stream dict fields, decode_image, page_has_text, finalize, extract_lopdf_page |
+| `render.rs` | Unit | PdfiumEngine construction with invalid path, render fallback when unloaded |
 | `ocr.rs` | Unit | Panic isolation (guard_unwind), string encoding |
 | `tests.rs` | Integration | Queue lifecycle, history, runner config, file metadata |
 

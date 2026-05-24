@@ -19,6 +19,7 @@ pub mod ingest;
 pub mod ocr;
 pub mod pdf;
 pub mod progress;
+pub mod render;
 pub mod runtime;
 #[cfg(test)]
 mod tests;
