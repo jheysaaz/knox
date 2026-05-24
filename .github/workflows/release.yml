@@ -161,6 +161,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # ── Tessdata bundle ───────────────────────────────────────────────
+      # Download Tesseract language data so the resource glob succeeds
+      # and the app ships self-contained (no system tessdata required).
+      - name: Download tessdata
+        shell: bash
+        run: |
+          mkdir -p src-tauri/tessdata
+          curl -fLo src-tauri/tessdata/eng.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+          curl -fLo src-tauri/tessdata/spa.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/spa.traineddata
+
       # ── Version Injection ─────────────────────────────────────────────
       - name: Set version in Cargo.toml
         shell: bash

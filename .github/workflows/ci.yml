@@ -61,6 +61,17 @@ jobs:
       # ── Frontend ─────────────────────────────────────────────────────────
       - run: pnpm install --frozen-lockfile
 
+      # ── Tessdata bundle ─────────────────────────────────────────────────
+      # Download Tesseract language data so the resource glob (tauri.conf.json)
+      # succeeds and the app is self-contained (no system tessdata required).
+      - name: Download tessdata
+        run: |
+          mkdir -p src-tauri/tessdata
+          curl -fLo src-tauri/tessdata/eng.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+          curl -fLo src-tauri/tessdata/spa.traineddata \
+            https://github.com/tesseract-ocr/tessdata_fast/raw/main/spa.traineddata
+
       - name: TypeScript check + Vite build
         run: pnpm build
 
