@@ -6,9 +6,9 @@ use tauri::Manager;
 
 mod commands;
 mod history;
+mod ocr_engine;
 mod queue;
 mod security;
-mod ocr_engine;
 use tauri_plugin_dialog::init as dialog_init;
 
 /// Typed error returned by Tauri commands.
@@ -21,19 +21,34 @@ pub struct CommandError {
 
 impl CommandError {
     fn validation(msg: impl Into<String>) -> Self {
-        Self { kind: "validation".into(), message: msg.into() }
+        Self {
+            kind: "validation".into(),
+            message: msg.into(),
+        }
     }
     fn io(msg: impl Into<String>) -> Self {
-        Self { kind: "io".into(), message: msg.into() }
+        Self {
+            kind: "io".into(),
+            message: msg.into(),
+        }
     }
     fn queue(msg: impl Into<String>) -> Self {
-        Self { kind: "queue".into(), message: msg.into() }
+        Self {
+            kind: "queue".into(),
+            message: msg.into(),
+        }
     }
     fn history(msg: impl Into<String>) -> Self {
-        Self { kind: "history".into(), message: msg.into() }
+        Self {
+            kind: "history".into(),
+            message: msg.into(),
+        }
     }
     fn pipeline(msg: impl Into<String>) -> Self {
-        Self { kind: "pipeline".into(), message: msg.into() }
+        Self {
+            kind: "pipeline".into(),
+            message: msg.into(),
+        }
     }
 }
 

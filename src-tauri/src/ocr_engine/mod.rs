@@ -20,6 +20,6 @@ pub mod ocr;
 pub mod pdf;
 pub mod progress;
 pub mod runtime;
-pub mod types;
 #[cfg(test)]
 mod tests;
+pub mod types;

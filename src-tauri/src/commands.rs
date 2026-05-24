@@ -5,7 +5,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::sleep;
 
 use crate::history;
-use crate::queue::{default_concurrency, now_millis, SharedQueue};
+use crate::queue::{SharedQueue, default_concurrency, now_millis};
 use crate::security;
 use crate::{
     CommandError, EnqueuePayload, FileMetadata, HistoryEntry, Job, JobStatus, OcrOptions,
@@ -89,9 +89,7 @@ pub fn write_log_file(path: String, content: String) -> Result<(), CommandError>
     }
     if let Some(parent) = p.parent() {
         if !parent.is_dir() {
-            return Err(CommandError::validation(
-                "Parent directory does not exist",
-            ));
+            return Err(CommandError::validation("Parent directory does not exist"));
         }
     }
     std::fs::write(&path, &content).map_err(|e| CommandError::io(e.to_string()))
@@ -202,9 +200,7 @@ pub fn remove_job(
 }
 
 #[tauri::command]
-pub fn get_status(
-    state: tauri::State<'_, SharedQueue>,
-) -> Result<QueueState, CommandError> {
+pub fn get_status(state: tauri::State<'_, SharedQueue>) -> Result<QueueState, CommandError> {
     let queue = state.lock().map_err(|e| {
         tracing::error!(target: "knox::queue", "lock poisoned: {e}");
         CommandError::queue("Queue lock poisoned")
@@ -216,9 +212,7 @@ pub fn get_status(
 }
 
 #[tauri::command]
-pub fn clear_queue(
-    state: tauri::State<'_, SharedQueue>,
-) -> Result<QueueState, CommandError> {
+pub fn clear_queue(state: tauri::State<'_, SharedQueue>) -> Result<QueueState, CommandError> {
     let mut queue = state.lock().map_err(|e| {
         tracing::error!(target: "knox::queue", "lock poisoned: {e}");
         CommandError::queue("Queue lock poisoned")
@@ -277,7 +271,9 @@ pub fn start_queue(
         return Ok(());
     }
     let cancelled = queue.cancelled.clone();
-    queue.cancelled.store(false, std::sync::atomic::Ordering::SeqCst);
+    queue
+        .cancelled
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     queue.is_running = true;
     drop(queue);
 
@@ -345,10 +341,7 @@ pub fn start_queue(
                 let processing = {
                     let queue = state.lock().ok();
                     queue.and_then(|queue| {
-                        queue
-                            .jobs
-                            .get(index)
-                            .and_then(|job| job.processing.clone())
+                        queue.jobs.get(index).and_then(|job| job.processing.clone())
                     })
                 };
                 let options = job_options.unwrap_or_else(|| OcrOptions {
@@ -404,47 +397,46 @@ pub fn start_queue(
                         "job started"
                     );
 
-                    let engine_config =
-                        match sanitize_processing_config(&app, &options, processing) {
-                            Ok(cfg) => cfg,
-                            Err(msg) => {
+                    let engine_config = match sanitize_processing_config(&app, &options, processing)
+                    {
+                        Ok(cfg) => cfg,
+                        Err(msg) => {
+                            tracing::error!(
+                                target: "knox::queue",
+                                job_id,
+                                "config error: {msg}"
+                            );
+                            let mut queue = match state.lock() {
+                                Ok(lock) => lock,
+                                Err(e) => {
+                                    tracing::error!(
+                                        target: "knox::queue",
+                                        "lock poisoned: {e}"
+                                    );
+                                    return;
+                                }
+                            };
+                            let job = &mut queue.jobs[index];
+                            job.status = JobStatus::Failed;
+                            job.error_message = Some(msg.to_string());
+                            if let Err(e) = app.emit("jobProgress", job.clone()) {
                                 tracing::error!(
                                     target: "knox::queue",
-                                    job_id,
-                                    "config error: {msg}"
+                                    "emit jobProgress failed: {e}"
                                 );
-                                let mut queue = match state.lock() {
-                                    Ok(lock) => lock,
-                                    Err(e) => {
-                                        tracing::error!(
-                                            target: "knox::queue",
-                                            "lock poisoned: {e}"
-                                        );
-                                        return;
-                                    }
-                                };
-                                let job = &mut queue.jobs[index];
-                                job.status = JobStatus::Failed;
-                                job.error_message = Some(msg.to_string());
-                                if let Err(e) = app.emit("jobProgress", job.clone()) {
-                                    tracing::error!(
-                                        target: "knox::queue",
-                                        "emit jobProgress failed: {e}"
-                                    );
-                                }
-                                if let Err(e) = app.emit("jobFinished", job.clone()) {
-                                    tracing::error!(
-                                        target: "knox::queue",
-                                        "emit jobFinished failed: {e}"
-                                    );
-                                }
-                                queue.in_flight = queue.in_flight.saturating_sub(1);
-                                return;
                             }
-                        };
+                            if let Err(e) = app.emit("jobFinished", job.clone()) {
+                                tracing::error!(
+                                    target: "knox::queue",
+                                    "emit jobFinished failed: {e}"
+                                );
+                            }
+                            queue.in_flight = queue.in_flight.saturating_sub(1);
+                            return;
+                        }
+                    };
                     let settings = crate::ocr_engine::types::OcrSettings::from(&options);
-                    let engine =
-                        crate::ocr_engine::engine::Engine::new(&engine_config, &settings);
+                    let engine = crate::ocr_engine::engine::Engine::new(&engine_config, &settings);
                     let result = engine
                         .process_files(
                             app.clone(),
@@ -459,8 +451,10 @@ pub fn start_queue(
                             job_cancelled,
                         )
                         .await;
-                    let was_cancelled =
-                        matches!(&result, Err(crate::ocr_engine::error::PipelineError::Cancelled));
+                    let was_cancelled = matches!(
+                        &result,
+                        Err(crate::ocr_engine::error::PipelineError::Cancelled)
+                    );
                     let succeeded = result.is_ok();
                     tracing::info!(
                         target: "knox::queue",
@@ -544,7 +538,9 @@ pub fn pause_queue(
         CommandError::queue("Queue lock poisoned")
     })?;
     queue.is_running = false;
-    queue.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+    queue
+        .cancelled
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     tracing::info!(target: "knox::queue", "queue paused");
     let snapshot = QueueState {
         jobs: queue.jobs.clone(),

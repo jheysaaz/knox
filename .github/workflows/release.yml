@@ -176,7 +176,7 @@ jobs:
       #   src-tauri/target/release/bundle/<platform>/
       # The recursive glob bundle/** picks up all installer types
       # (.dmg, .deb, .AppImage, .msi, .exe) regardless of subdirectory.
-      - uses: tauri-apps/tauri-action@v4
+      - uses: tauri-apps/tauri-action@v0
         id: tauri_build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

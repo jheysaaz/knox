@@ -1,15 +1,18 @@
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use tokio::sync::mpsc;
 
 use crate::ocr_engine::error::PipelineError;
-use crate::ocr_engine::image::{downsample_to_dpi, preprocess, BitonalImage};
-use crate::ocr_engine::ingest::{enqueue_files, IngestItem};
+use crate::ocr_engine::image::{BitonalImage, downsample_to_dpi, preprocess};
+use crate::ocr_engine::ingest::{IngestItem, enqueue_files};
 use crate::ocr_engine::ocr::TessApi;
-use crate::ocr_engine::pdf::{encode_ccitt_g4, encode_flate, finalize, for_each_page_image, load_document, replace_page_images};
+use crate::ocr_engine::pdf::{
+    encode_ccitt_g4, encode_flate, finalize, for_each_page_image, load_document,
+    replace_page_images,
+};
 use crate::ocr_engine::progress::ProgressTracker;
 use crate::ocr_engine::runtime::RuntimeResources;
 use crate::ocr_engine::types::{CompressionMode, OcrSettings, PipelineStatus, ProcessingConfig};
@@ -29,69 +32,78 @@ impl Engine {
         }
     }
 
-/// Processes all files in `items` sequentially, respecting the concurrency
+    /// Processes all files in `items` sequentially, respecting the concurrency
     /// semaphore. Emits progress events and returns on first error or cancellation.
     pub async fn process_files(
-    &self,
-    app: tauri::AppHandle,
-    config: ProcessingConfig,
-    settings: OcrSettings,
-    items: Vec<IngestItem>,
-    channel_capacity: usize,
-    cancelled: Arc<AtomicBool>,
-) -> Result<(), PipelineError> {
-    let count = items.len();
-    tracing::info!(target: "knox::engine", count, "processing batch");
-    let (tx, mut rx) = mpsc::channel::<IngestItem>(channel_capacity);
-    let tracker = ProgressTracker::new(count as u32);
-    let ingest = enqueue_files(tx, items);
+        &self,
+        app: tauri::AppHandle,
+        config: ProcessingConfig,
+        settings: OcrSettings,
+        items: Vec<IngestItem>,
+        channel_capacity: usize,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<(), PipelineError> {
+        let count = items.len();
+        tracing::info!(target: "knox::engine", count, "processing batch");
+        let (tx, mut rx) = mpsc::channel::<IngestItem>(channel_capacity);
+        let tracker = ProgressTracker::new(count as u32);
+        let ingest = enqueue_files(tx, items);
 
-    tokio::spawn(async move {
-        if let Err(e) = ingest.await {
-            tracing::error!(target: "knox::engine", error = %e, "ingest channel failed");
-        }
-    });
-
-    while let Some(item) = rx.recv().await {
-        if cancelled.load(Ordering::SeqCst) {
-            tracing::warn!(target: "knox::engine", "batch cancelled");
-            return Err(PipelineError::Cancelled);
-        }
-        tracing::info!(target: "knox::engine", job_id = %item.job_id, path = %item.path.display(), "processing file");
-        let semaphore = self.runtime.file_semaphore.clone();
-        let permit = semaphore.acquire_owned().await.map_err(|_| {
-            PipelineError::Channel("file semaphore closed".to_string())
-        })?;
-        let app = app.clone();
-        let tracker = tracker.clone();
-        let config = config.clone();
-        let settings = settings.clone();
-        let pool = self.runtime.pool.clone();
-        let job_id = item.job_id.clone();
-        let result = process_single_file(pool, app.clone(), tracker.clone(), config, settings, item, cancelled.clone()).await;
-        drop(permit);
-        if let Err(err) = &result {
-            if !matches!(err, PipelineError::Cancelled) {
-                tracing::error!(target: "knox::engine", job_id = %job_id, error = %err, "file processing failed");
-                tracker.emit(
-                    &app,
-                    job_id.clone(),
-                    PipelineStatus::Failed,
-                    0,
-                    0,
-                    Some(err.to_string()),
-                );
+        tokio::spawn(async move {
+            if let Err(e) = ingest.await {
+                tracing::error!(target: "knox::engine", error = %e, "ingest channel failed");
             }
+        });
+
+        while let Some(item) = rx.recv().await {
+            if cancelled.load(Ordering::SeqCst) {
+                tracing::warn!(target: "knox::engine", "batch cancelled");
+                return Err(PipelineError::Cancelled);
+            }
+            tracing::info!(target: "knox::engine", job_id = %item.job_id, path = %item.path.display(), "processing file");
+            let semaphore = self.runtime.file_semaphore.clone();
+            let permit = semaphore
+                .acquire_owned()
+                .await
+                .map_err(|_| PipelineError::Channel("file semaphore closed".to_string()))?;
+            let app = app.clone();
+            let tracker = tracker.clone();
+            let config = config.clone();
+            let settings = settings.clone();
+            let pool = self.runtime.pool.clone();
+            let job_id = item.job_id.clone();
+            let result = process_single_file(
+                pool,
+                app.clone(),
+                tracker.clone(),
+                config,
+                settings,
+                item,
+                cancelled.clone(),
+            )
+            .await;
+            drop(permit);
+            if let Err(err) = &result {
+                if !matches!(err, PipelineError::Cancelled) {
+                    tracing::error!(target: "knox::engine", job_id = %job_id, error = %err, "file processing failed");
+                    tracker.emit(
+                        &app,
+                        job_id.clone(),
+                        PipelineStatus::Failed,
+                        0,
+                        0,
+                        Some(err.to_string()),
+                    );
+                }
+            }
+            if let Err(err) = result {
+                return Err(err);
+            }
+            tracing::info!(target: "knox::engine", job_id = %job_id, "file completed");
         }
-        if let Err(err) = result {
-            return Err(err);
-        }
-        tracing::info!(target: "knox::engine", job_id = %job_id, "file completed");
+
+        Ok(())
     }
-
-    Ok(())
-}
-
 }
 
 async fn process_single_file(
@@ -158,9 +170,14 @@ async fn process_single_file(
         );
 
         let stream = match (settings.compression.clone(), processed.bitonal) {
-            (CompressionMode::Ccitt, Some(BitonalImage { data, width, height })) => {
-                encode_ccitt_g4(width, height, data)
-            }
+            (
+                CompressionMode::Ccitt,
+                Some(BitonalImage {
+                    data,
+                    width,
+                    height,
+                }),
+            ) => encode_ccitt_g4(width, height, data),
             _ => encode_flate(ocr_image.width(), ocr_image.height(), ocr_image.into_raw())?,
         };
         replacements.insert(page.page_number, stream);

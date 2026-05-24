@@ -1,5 +1,5 @@
 use std::ffi::{CString, NulError};
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::NonNull;
 
 use crate::ocr_engine::error::PipelineError;
