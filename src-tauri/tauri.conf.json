@@ -38,7 +38,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "tessdata/*": "tessdata/"
+      "tessdata/*": "tessdata/",
+      "pdfium/*": "pdfium/"
     }
   }
 }

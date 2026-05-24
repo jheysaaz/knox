@@ -195,6 +195,18 @@ jobs:
           curl -fLo src-tauri/tessdata/spa.traineddata \
             https://github.com/tesseract-ocr/tessdata_fast/raw/main/spa.traineddata
 
+      # ── Pdfium bundle ────────────────────────────────────────────────
+      # Download the pdfium dynamic library for the current platform.
+      # The tauri.conf.json resource glob requires these files to exist.
+      - name: Download pdfium library
+        shell: bash
+        run: bash scripts/download-pdfium.sh latest
+
+      - name: Codesign pdfium (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: codesign -f -s - src-tauri/pdfium/libpdfium.dylib 2>/dev/null || true
+
       # ── Version Injection ─────────────────────────────────────────────
       - name: Set version in Cargo.toml
         shell: bash

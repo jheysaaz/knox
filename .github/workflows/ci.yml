@@ -15,13 +15,26 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
 
       # ── System Dependencies ──────────────────────────────────────────────
       # Tauri v2 runtime libs + OCR dev headers for tesseract-sys/leptonica-sys
-      - name: Install system dependencies
+      - name: Install system deps (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -35,36 +48,70 @@ jobs:
             libleptonica-dev \
             pkg-config \
             build-essential
-          # Verify pkg-config can find OCR libs (fails fast if missing)
           pkg-config --modversion tesseract
           pkg-config --modversion lept
 
-      # ── pnpm ─────────────────────────────────────────────────────────────
+      - name: Install system deps (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew install tesseract leptonica pkg-config
+          pkg-config --modversion tesseract
+          pkg-config --modversion lept
+
+      - name: Configure vcpkg + binary cache (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $cacheDir = "$env:RUNNER_TEMP\vcpkg-cache"
+          New-Item -ItemType Directory -Force -Path $cacheDir
+          echo "VCPKG_ROOT=C:\vcpkg" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_DEFAULT_TRIPLET=x64-windows-static-md" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_MANIFEST_DIR=$env:GITHUB_WORKSPACE\src-tauri" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_MANIFEST_MODE=true" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_BINARY_SOURCES=clear;files,$cacheDir,readwrite" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_MAX_CONCURRENT=$env:NUMBER_OF_PROCESSORS" | Out-File -Append -FilePath $env:GITHUB_ENV
+
+      - name: Restore vcpkg binary cache (Windows)
+        if: matrix.os == 'windows-latest'
+        id: vcpkg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('src-tauri/vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Install system deps (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: vcpkg install
+
+      # ── Tools ─────────────────────────────────────────────────────────
       - uses: pnpm/action-setup@v4
         with:
           version: 10
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-
-      # ── Rust ─────────────────────────────────────────────────────────────
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: sccache (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: mozilla-actions/sccache-action@v1
 
       # ── Frontend ─────────────────────────────────────────────────────────
       - run: pnpm install --frozen-lockfile
 
       # ── Tessdata bundle ─────────────────────────────────────────────────
-      # Download Tesseract language data so the resource glob (tauri.conf.json)
-      # succeeds and the app is self-contained (no system tessdata required).
       - name: Download tessdata
+        shell: bash
         run: |
           mkdir -p src-tauri/tessdata
           curl -fLo src-tauri/tessdata/eng.traineddata \
@@ -72,13 +119,23 @@ jobs:
           curl -fLo src-tauri/tessdata/spa.traineddata \
             https://github.com/tesseract-ocr/tessdata_fast/raw/main/spa.traineddata
 
+      # ── Pdfium bundle ──────────────────────────────────────────────────
+      - name: Download pdfium library
+        shell: bash
+        run: bash scripts/download-pdfium.sh latest
+
+      - name: Codesign pdfium (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: codesign -f -s - src-tauri/pdfium/libpdfium.dylib 2>/dev/null || true
+
+      # ── Checks ─────────────────────────────────────────────────────────
       - name: TypeScript check + Vite build
         run: pnpm build
 
       - name: Frontend tests
         run: pnpm test
 
-      # ── Rust checks ──────────────────────────────────────────────────────
       - name: Formatting
         working-directory: src-tauri
         run: cargo fmt --check
