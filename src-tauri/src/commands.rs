@@ -86,7 +86,9 @@ pub fn write_log_file(path: String, content: String) -> Result<(), CommandError>
     if p.extension().and_then(|e| e.to_str()) != Some("log") {
         return Err(CommandError::validation("File must have .log extension"));
     }
-    if let Some(parent) = p.parent() && !parent.is_dir() {
+    if let Some(parent) = p.parent()
+        && !parent.is_dir()
+    {
         return Err(CommandError::validation("Parent directory does not exist"));
     }
     std::fs::write(&path, &content).map_err(|e| CommandError::io(e.to_string()))
