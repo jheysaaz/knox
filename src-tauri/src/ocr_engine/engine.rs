@@ -17,19 +17,22 @@ use crate::ocr_engine::progress::ProgressTracker;
 use crate::ocr_engine::runtime::RuntimeResources;
 use crate::ocr_engine::types::{CompressionMode, OcrSettings, PipelineStatus, ProcessingConfig};
 
+pub type SharedTessPool = std::sync::Arc<std::sync::Mutex<Option<TessApi>>>;
+
 /// Orchestrates the OCR pipeline: ingests files, acquires semaphore permits,
 /// and delegates per-file processing to `process_single_file`.
 #[derive(Clone)]
 pub struct Engine {
     runtime: std::sync::Arc<RuntimeResources>,
+    tess_pool: SharedTessPool,
 }
 
 impl Engine {
-    /// Creates a new engine with a runtime built from `config`.
-    pub fn new(config: &ProcessingConfig, _settings: &OcrSettings) -> Self {
-        Self {
-            runtime: std::sync::Arc::new(crate::ocr_engine::runtime::build_runtime(config)),
-        }
+    /// Creates a new engine wrapping a pre-built global runtime and tess pool.
+    /// The runtime (Rayon pool + semaphore) is created once in setup and
+    /// shared across all jobs, avoiding repeated thread pool construction.
+    pub fn new(runtime: std::sync::Arc<RuntimeResources>, tess_pool: SharedTessPool) -> Self {
+        Self { runtime, tess_pool }
     }
 
     /// Processes all files in `items` sequentially, respecting the concurrency
@@ -43,6 +46,7 @@ impl Engine {
         channel_capacity: usize,
         cancelled: Arc<AtomicBool>,
     ) -> Result<(), PipelineError> {
+        let tess_pool = self.tess_pool.clone();
         let count = items.len();
         tracing::info!(target: "knox::engine", count, "processing batch");
         let (tx, mut rx) = mpsc::channel::<IngestItem>(channel_capacity);
@@ -76,10 +80,11 @@ impl Engine {
                 pool,
                 app.clone(),
                 tracker.clone(),
-                config,
+                config.clone(),
                 settings,
                 item,
                 cancelled.clone(),
+                tess_pool.clone(),
             )
             .await;
             drop(permit);
@@ -112,6 +117,7 @@ async fn process_single_file(
     settings: OcrSettings,
     item: IngestItem,
     cancelled: Arc<AtomicBool>,
+    tess_pool: SharedTessPool,
 ) -> Result<(), PipelineError> {
     let input_path = &item.path;
     let job_id = item.job_id.clone();
@@ -124,7 +130,23 @@ async fn process_single_file(
     let total_pages = document.get_pages().len() as u32;
     tracing::info!(target: "knox::engine", job_id, total_pages, "document loaded");
     let mut replacements: BTreeMap<u32, lopdf::Stream> = BTreeMap::new();
-    let tess = TessApi::new(&config.tessdata_path, &config.languages)?;
+
+    let tess = {
+        let mut pool_guard = tess_pool
+            .lock()
+            .map_err(|e| PipelineError::Channel(format!("tess pool lock poisoned: {e}")))?;
+        match pool_guard.take() {
+            Some(tess) => {
+                tess.clear()?;
+                tracing::debug!(target: "knox::engine", job_id, "reusing warm TessApi from pool");
+                tess
+            }
+            None => {
+                tracing::debug!(target: "knox::engine", job_id, "creating fresh TessApi");
+                TessApi::new(&config.tessdata_path, &config.languages)?
+            }
+        }
+    };
     tess.set_page_seg_mode(settings.psm.into())?;
 
     for_each_page_image(&document, settings.existing_text, |page| {
@@ -188,6 +210,18 @@ async fn process_single_file(
     }
     replace_page_images(&mut document, replacements)?;
     tracing::debug!(target: "knox::engine", job_id, "image replacement done");
+
+    // Return the TessApi to the shared pool for reuse
+    {
+        let mut pool_guard = tess_pool
+            .lock()
+            .map_err(|e| PipelineError::Channel(format!("tess pool lock poisoned: {e}")))?;
+        if pool_guard.is_none() {
+            *pool_guard = Some(tess);
+        }
+        // else: pool already has a warm instance, drop this one
+    }
+
     finalize(&mut document, &output_path, settings.archive_enforcement)
         .map_err(|e| PipelineError::PdfParse(format!("save failed: {e}")))?;
 

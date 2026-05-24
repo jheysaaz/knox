@@ -8,12 +8,12 @@ import { AdvancedOptions, type ProfileValues } from "@/components/advanced-optio
 import { Header } from "@/components/header";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useGreeting } from "@/hooks/useGreeting";
+import { GREETING } from "@/hooks/useGreeting";
 import { useLogger } from "@/hooks/useLogger";
 import { useQueue } from "@/hooks/useQueue";
 
 export default function App() {
-  const greeting = useGreeting();
+
   const { logs, addLog } = useLogger();
   const {
     files,
@@ -51,7 +51,7 @@ export default function App() {
           <div className="flex-[3] min-w-0 flex flex-col min-h-0">
             <div className="flex-1 min-h-0 overflow-y-auto">
               <Header
-                greeting={greeting}
+                greeting={GREETING}
                 showActivity={showActivity}
                 onToggleActivity={() => setShowActivity((v) => !v)}
               />

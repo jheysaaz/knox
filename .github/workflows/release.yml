@@ -135,14 +135,32 @@ jobs:
           pkg-config --modversion tesseract
           pkg-config --modversion lept
 
-      - name: Install system deps (Windows)
+      - name: Configure vcpkg + binary cache (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          # vcpkg is pre-installed on GitHub Actions Windows runners at C:\vcpkg
-          $vcpkgRoot = "C:\vcpkg"
-          & "$vcpkgRoot\vcpkg" install tesseract:x64-windows-static-md leptonica:x64-windows-static-md
-          echo "VCPKG_ROOT=$vcpkgRoot" | Out-File -Append -FilePath $env:GITHUB_ENV
+          $cacheDir = "$env:RUNNER_TEMP\vcpkg-cache"
+          New-Item -ItemType Directory -Force -Path $cacheDir
+          echo "VCPKG_ROOT=C:\vcpkg" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_DEFAULT_TRIPLET=x64-windows-static-md" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_MANIFEST_DIR=$env:GITHUB_WORKSPACE\src-tauri" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_MANIFEST_MODE=true" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_BINARY_SOURCES=clear;files,$cacheDir,readwrite" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_MAX_CONCURRENT=$env:NUMBER_OF_PROCESSORS" | Out-File -Append -FilePath $env:GITHUB_ENV
+
+      - name: Restore vcpkg binary cache (Windows)
+        if: matrix.os == 'windows-latest'
+        id: vcpkg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('src-tauri/vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Install system deps (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: vcpkg install
 
       # ── Tools ─────────────────────────────────────────────────────────
       - uses: pnpm/action-setup@v4
@@ -158,6 +176,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: sccache (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: mozilla-actions/sccache-action@v1
 
       - run: pnpm install --frozen-lockfile
 

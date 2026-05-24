@@ -32,13 +32,21 @@ image = "0.25"
 imageproc = "0.24"
 tracing = "0.1"
 tracing-appender = "0.2"
-tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 thiserror = "1"
 tesseract-sys = "0.6"
 leptonica-sys = "0.4"
 flate2 = "1"
 futures = "0.3"
 pdfluent-jbig2 = "0.2.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = 3
+strip = true
+debug = 0
 
 [dev-dependencies]
 lopdf = "0.33"

@@ -7,6 +7,15 @@ use tokio::sync::Semaphore;
 use crate::ocr_engine::config::effective_max_concurrent_files;
 use crate::ocr_engine::types::ProcessingConfig;
 
+fn available_parallelism_cached() -> usize {
+    static CACHED: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::thread::available_parallelism()
+            .map(NonZeroUsize::get)
+            .unwrap_or(1)
+    })
+}
+
 /// Shared OCR runtime: a Rayon thread pool and a semaphore governing concurrent file processing.
 #[derive(Clone)]
 pub struct RuntimeResources {
@@ -14,17 +23,39 @@ pub struct RuntimeResources {
     pub file_semaphore: std::sync::Arc<Semaphore>,
 }
 
+impl RuntimeResources {
+    /// Creates a runtime with sensible defaults:
+    /// - Threads: `available_parallelism - 2` (min 1)
+    /// - Semaphore permits: `available_parallelism / 2` (min 1)
+    pub fn new() -> Self {
+        let cores = available_parallelism_cached();
+        let threads = cores.saturating_sub(2).max(1);
+        let permits = (cores / 2).max(1);
+        let pool = ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .expect("rayon pool creation failed");
+        Self {
+            pool: std::sync::Arc::new(pool),
+            file_semaphore: std::sync::Arc::new(Semaphore::new(permits)),
+        }
+    }
+}
+
+impl Default for RuntimeResources {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Builds a `RuntimeResources` from config: creates a Rayon thread pool sized to
 /// `thread_pool_size` (or `cores - 2`, minimum 1) and a semaphore with permits
 /// determined by `effective_max_concurrent_files`.
+#[allow(dead_code)]
 pub fn build_runtime(config: &ProcessingConfig) -> RuntimeResources {
-    let threads = config.thread_pool_size.unwrap_or_else(|| {
-        std::thread::available_parallelism()
-            .map(NonZeroUsize::get)
-            .unwrap_or(1)
-            .saturating_sub(2)
-            .max(1)
-    });
+    let threads = config
+        .thread_pool_size
+        .unwrap_or_else(|| available_parallelism_cached().saturating_sub(2).max(1));
 
     let pool = ThreadPoolBuilder::new()
         .num_threads(threads)

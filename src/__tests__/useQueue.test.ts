@@ -25,13 +25,6 @@ function emitEvent(event: string, payload: unknown) {
   if (handler) handler({ payload });
 }
 
-/** Flush pending microtasks so async useEffect setup completes. */
-async function flushEffects() {
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 0));
-  });
-}
-
 const defaultSettings = {
   cpuCores: 6,
   memoryPages: 30,
@@ -104,8 +97,11 @@ describe("useQueue", () => {
   it("pipeline-progress event updates file status and progress", async () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
-    await flushEffects();
 
+    vi.mocked(invoke).mockResolvedValue({
+      jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+      isRunning: false,
+    });
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -116,6 +112,12 @@ describe("useQueue", () => {
           status: "pending",
         },
       ]);
+    });
+    act(() => {
+      result.current.setOutputDir("/output");
+    });
+    await act(async () => {
+      await result.current.handleStart(defaultSettings);
     });
 
     act(() => {
@@ -138,8 +140,11 @@ describe("useQueue", () => {
   it("pipeline-progress with failed status sets error", async () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
-    await flushEffects();
 
+    vi.mocked(invoke).mockResolvedValue({
+      jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+      isRunning: false,
+    });
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -150,6 +155,12 @@ describe("useQueue", () => {
           status: "pending",
         },
       ]);
+    });
+    act(() => {
+      result.current.setOutputDir("/output");
+    });
+    await act(async () => {
+      await result.current.handleStart(defaultSettings);
     });
 
     act(() => {
@@ -173,8 +184,11 @@ describe("useQueue", () => {
   it("jobFinished event updates file status to complete", async () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
-    await flushEffects();
 
+    vi.mocked(invoke).mockResolvedValue({
+      jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+      isRunning: false,
+    });
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -185,6 +199,12 @@ describe("useQueue", () => {
           status: "pending",
         },
       ]);
+    });
+    act(() => {
+      result.current.setOutputDir("/output");
+    });
+    await act(async () => {
+      await result.current.handleStart(defaultSettings);
     });
 
     act(() => {
@@ -208,8 +228,11 @@ describe("useQueue", () => {
   it("jobFinished with failed status sets error", async () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
-    await flushEffects();
 
+    vi.mocked(invoke).mockResolvedValue({
+      jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+      isRunning: false,
+    });
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -220,6 +243,12 @@ describe("useQueue", () => {
           status: "pending",
         },
       ]);
+    });
+    act(() => {
+      result.current.setOutputDir("/output");
+    });
+    await act(async () => {
+      await result.current.handleStart(defaultSettings);
     });
 
     act(() => {

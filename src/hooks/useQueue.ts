@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
@@ -88,65 +88,44 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
     [files],
   );
 
+  const listenersReady = useRef(false);
+  const cleanupFns = useRef<(() => void)[]>([]);
+
   useEffect(() => {
-    const load = async () => {
-      try {
-        const state = await invoke<QueueState>("get_status");
-        if (state.jobs.length > 0) {
-          setFiles((prev) => {
-            if (prev.length > 0) return prev;
-            return state.jobs.map((job) => ({
-              id: job.id,
-              path: job.inputPath,
-              name: job.inputPath.split("/").pop() || job.inputPath,
-              size: 0,
-              status: mapJobStatus(job.status),
-              queued: true,
-            }));
-          });
-        }
-      } catch {
-        // ignore
-      }
+    return () => {
+      cleanupFns.current.forEach((fn) => fn());
     };
-    load();
   }, []);
 
-  useEffect(() => {
-    let unlistenProgress: (() => void) | undefined;
-    let unlistenQueue: (() => void) | undefined;
-    let unlistenFinish: (() => void) | undefined;
-    let unlistenJobProgress: (() => void) | undefined;
-
-    const setup = async () => {
-      unlistenProgress = await listen<PipelineProgress>(
-        "pipeline-progress",
-        (event) => {
-          const progress = event.payload;
-          if (progress.status === "failed" && progress.errorMessage) {
-            addLog("error", progress.errorMessage);
-          }
-          setFiles((prev) =>
-            prev.map((file) => {
-              if (file.id !== progress.jobId) return file;
-              const percent = progress.totalPages
-                ? Math.round((progress.currentPage / progress.totalPages) * 100)
-                : 0;
-              return {
-                ...file,
-                status:
-                  progress.status === "failed"
-                    ? "error"
-                    : progress.status === "completed"
-                      ? "complete"
-                      : "processing",
-                progress: percent,
-              };
-            }),
-          );
-        },
-      );
-      unlistenQueue = await listen<QueueState>("queueState", (event) => {
+  const ensureListeners = useCallback(async () => {
+    if (listenersReady.current) return;
+    listenersReady.current = true;
+    const fns = await Promise.all([
+      listen<PipelineProgress>("pipeline-progress", (event) => {
+        const progress = event.payload;
+        if (progress.status === "failed" && progress.errorMessage) {
+          addLog("error", progress.errorMessage);
+        }
+        setFiles((prev) =>
+          prev.map((file) => {
+            if (file.id !== progress.jobId) return file;
+            const percent = progress.totalPages
+              ? Math.round((progress.currentPage / progress.totalPages) * 100)
+              : 0;
+            return {
+              ...file,
+              status:
+                progress.status === "failed"
+                  ? "error"
+                  : progress.status === "completed"
+                    ? "complete"
+                    : "processing",
+              progress: percent,
+            };
+          }),
+        );
+      }),
+      listen<QueueState>("queueState", (event) => {
         const snapshot = event.payload;
         setFiles((prev) =>
           prev.map((file) => {
@@ -159,8 +138,8 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
             };
           }),
         );
-      });
-      unlistenFinish = await listen<Job>("jobFinished", (event) => {
+      }),
+      listen<Job>("jobFinished", (event) => {
         const job = event.payload;
         setFiles((prev) =>
           prev.map((file) =>
@@ -191,8 +170,8 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
               ? `Paused: ${job.inputPath}`
               : `Failed: ${job.errorMessage || job.inputPath}`,
         );
-      });
-      unlistenJobProgress = await listen<Job>("jobProgress", (event) => {
+      }),
+      listen<Job>("jobProgress", (event) => {
         const job = event.payload;
         setFiles((prev) =>
           prev.map((file) =>
@@ -201,16 +180,9 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
               : file,
           ),
         );
-      });
-    };
-
-    setup();
-    return () => {
-      if (unlistenProgress) unlistenProgress();
-      if (unlistenQueue) unlistenQueue();
-      if (unlistenFinish) unlistenFinish();
-      if (unlistenJobProgress) unlistenJobProgress();
-    };
+      }),
+    ]);
+    cleanupFns.current = fns;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -327,6 +299,7 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
           return { ...file, id: job.id, queued: true };
         });
       });
+      await ensureListeners();
       await invoke("start_queue");
       addLog("info", `Processing ${paths.length} file(s)...`);
     } catch (err) {

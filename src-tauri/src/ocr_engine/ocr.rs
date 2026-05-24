@@ -6,9 +6,19 @@ use crate::ocr_engine::error::PipelineError;
 
 /// Safe wrapper around the Tesseract C API (`TessBaseAPI`). All FFI calls are
 /// isolated with `catch_unwind` to prevent panics from propagating.
+///
+/// # Safety
+/// Each `TessBaseAPI` handle is independent per Tesseract's API contract.
+/// Handles are never shared across threads concurrently — each instance is
+/// created, used, and dropped within a single task scope.
 pub struct TessApi {
     api: NonNull<tesseract_sys::TessBaseAPI>,
 }
+
+// SAFETY: `TessBaseAPI` handles are independent (each is its own Tesseract
+// engine instance). Our pipeline never shares a handle across threads
+// concurrently. This allows pooled reuse across async tasks.
+unsafe impl Send for TessApi {}
 
 impl TessApi {
     /// Initialises a new Tesseract API instance with the given tessdata path and languages.
@@ -77,10 +87,19 @@ impl TessApi {
         Ok(text)
     }
 
+    /// Resets the engine for reuse with a new image, keeping the language
+    /// model loaded. This avoids re-parsing tessdata between jobs.
+    pub fn clear(&self) -> Result<(), PipelineError> {
+        guard_unwind("TessBaseAPIClear", || unsafe {
+            tesseract_sys::TessBaseAPIClear(self.api.as_ptr())
+        })?;
+        Ok(())
+    }
+
     /// Sets the page segmentation mode for the Tesseract engine.
     pub fn set_page_seg_mode(&self, mode: tesseract_sys::PageSegMode) -> Result<(), PipelineError> {
         guard_unwind("TessBaseAPISetPageSegMode", || unsafe {
-            tesseract_sys::TessBaseAPISetPageSegMode(self.api.as_ptr(), mode as u32)
+            tesseract_sys::TessBaseAPISetPageSegMode(self.api.as_ptr(), mode as _)
         })?;
         Ok(())
     }

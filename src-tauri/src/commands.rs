@@ -1,16 +1,22 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::sleep;
 
 use crate::history;
+use crate::ocr_engine::runtime::RuntimeResources;
 use crate::queue::{SharedQueue, default_concurrency, now_millis};
 use crate::security;
 use crate::{
     CommandError, EnqueuePayload, FileMetadata, HistoryEntry, Job, JobStatus, OcrOptions,
     OutputType, QueueState, SharedHistory,
 };
+
+fn global_runtime() -> &'static Arc<RuntimeResources> {
+    crate::RUNTIME.get_or_init(|| Arc::new(RuntimeResources::new()))
+}
 
 fn sanitize_processing_config(
     app: &AppHandle,
@@ -27,10 +33,7 @@ fn sanitize_processing_config(
             .resource_dir()
             .ok()
             .map(|dir| dir.join("tessdata")),
-        std::env::var("TESSDATA_PREFIX").ok().map(PathBuf::from),
-        Some(PathBuf::from("/opt/homebrew/share/tessdata")),
-        Some(PathBuf::from("/usr/local/share/tessdata/")),
-        Some(PathBuf::from("/usr/share/tessdata/")),
+        crate::resolve_tessdata_path().map(PathBuf::from),
     ]
     .into_iter()
     .flatten()
@@ -435,7 +438,13 @@ pub fn start_queue(
                         }
                     };
                     let settings = crate::ocr_engine::types::OcrSettings::from(&options);
-                    let engine = crate::ocr_engine::engine::Engine::new(&engine_config, &settings);
+                    let runtime = global_runtime().clone();
+                    let engine = crate::ocr_engine::engine::Engine::new(
+                        runtime,
+                        app.state::<crate::ocr_engine::engine::SharedTessPool>()
+                            .inner()
+                            .clone(),
+                    );
                     let result = engine
                         .process_files(
                             app.clone(),
@@ -549,4 +558,17 @@ pub fn pause_queue(
         tracing::error!(target: "knox::queue", "emit queueState failed: {e}");
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn log_window_shown() {
+    let elapsed = crate::START_TIME
+        .get()
+        .map(|t| t.elapsed())
+        .unwrap_or_default();
+    tracing::info!(
+        target: "knox::startup",
+        elapsed_ms = elapsed.as_millis() as u64,
+        "window shown — app ready"
+    );
 }

@@ -79,6 +79,12 @@ pnpm tauri build       # Production build
 | `jobFinished` | `Job` | Job completed/failed/cancelled |
 | `historyUpdated` | `Vec<HistoryEntry>` | History modified |
 
+## Performance Targets
+- **TTI (Time to Interactive)**: Must be under 3 seconds (measured by `knox::startup` log `elapsed_ms`)
+- Event listeners lazily registered on first job start (not on mount)
+- No blocking IPC calls during initial render (`get_status` deferred)
+- Greeting is a compile-time constant (no timer/re-renders)
+
 ## Development Workflow
 
 For every new feature or change, follow this order:

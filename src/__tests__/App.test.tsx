@@ -8,37 +8,39 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    show: vi.fn(),
+    setFocus: vi.fn(),
+    onDragDropEvent: vi.fn().mockReturnValue(Promise.resolve(vi.fn())),
+  }),
+}));
+
 beforeEach(() => {
   vi.mocked(invoke).mockResolvedValue({ jobs: [], isRunning: false });
 });
 
 describe("App", () => {
-  it("renders the greeting", () => {
+  it("renders the greeting", async () => {
     render(<App />);
-    expect(screen.getByText("Hi,")).toBeInTheDocument();
+    expect(await screen.findByText("Hi,")).toBeInTheDocument();
   });
 
-  it("renders the file drop zone", () => {
+  it("renders the file drop zone", async () => {
     render(<App />);
-    expect(screen.getByText("Drop PDF files here")).toBeInTheDocument();
+    expect(await screen.findByText("Drop PDF files here")).toBeInTheDocument();
   });
 
-  it("renders the output directory picker", () => {
+  it("renders the output directory picker", async () => {
     render(<App />);
-    expect(screen.getByText("Output Directory")).toBeInTheDocument();
+    expect(await screen.findByText("Output Directory")).toBeInTheDocument();
   });
 
   it("shows error toast when starting with no files", async () => {
     render(<App />);
     const user = userEvent.setup();
+    expect(await screen.findByRole("button", { name: /start ocr/i }));
     await user.click(screen.getByRole("button", { name: /start ocr/i }));
-    expect(screen.getByText("No files in queue")).toBeInTheDocument();
-  });
-
-  it("shows error toast when starting with no output dir", async () => {
-    render(<App />);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /start ocr/i }));
-    await vi.dynamicImportSettled();
+    expect(await screen.findByText("No files in queue")).toBeInTheDocument();
   });
 });

@@ -1,8 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/inter";
-@import "@fontsource/jetbrains-mono/latin.css";
+@import "@fontsource-variable/inter" layer(fonts);
+@import "@fontsource/jetbrains-mono/latin.css" layer(fonts);
 
 @custom-variant dark (&:is(.dark *));
 

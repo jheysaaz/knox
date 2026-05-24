@@ -6,6 +6,7 @@ use crate::ocr_engine::types::ProcessingConfig;
 ///
 /// Uses the explicit `max_concurrent_files` value if set, otherwise defaults to
 /// half the available CPU cores (minimum 1).
+#[allow(dead_code)]
 pub fn effective_max_concurrent_files(config: &ProcessingConfig) -> usize {
     if let Some(value) = config.max_concurrent_files {
         return value.max(1);
