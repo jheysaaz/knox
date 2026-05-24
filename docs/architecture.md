@@ -1,43 +1,50 @@
 # Architecture
 
 ## High-level Components
-- UI (React + Tailwind + shadcn/ui)
-- Core (Rust, Tauri commands)
-- OCR sidecar bundle (Python + OCRmyPDF + native deps)
+- **UI** (React 19 + TypeScript + Tailwind CSS 4 + shadcn/ui)
+- **Core** (Rust, Tauri v2 commands)
+- **OCR Pipeline** (Rust-native: tesseract-sys FFI, lopdf, image/imageproc, rayon)
 
 ## Data Flow
-1) User selects PDFs and output folder.
-2) UI enqueues jobs via Tauri command.
-3) Rust queue spawns sidecar per job.
-4) Sidecar logs are parsed into progress events.
-5) UI renders progress and completion states.
-6) History is written locally after job completion.
+1. User selects PDFs and output folder in the UI.
+2. UI enqueues jobs via `invoke("enqueue", ...)` Tauri command.
+3. Rust backend spawns an async pipeline per file, bounded by a semaphore.
+4. Per-page progress is emitted as `pipeline-progress` events.
+5. UI renders progress and completion states.
+6. History is written locally after job completion.
 
 ## Tauri Command API
-- `enqueue(files, outputDir, options)`
-- `startQueue()`
-- `pauseQueue()`
-- `cancelJob(id)`
-- `clearQueue()`
-- `getStatus()`
-- `getHistory()`
-- `clearHistory()`
+| Command | Params | Returns | Description |
+|---|---|---|---|
+| `enqueue` | `payload: EnqueuePayload` | `QueueState` | Add files to processing queue |
+| `start_queue` | — | `()` | Begin processing queued jobs |
+| `pause_queue` | — | `()` | Pause all processing |
+| `remove_job` | `job_id: String` | `QueueState` | Remove a queued job |
+| `clear_queue` | — | `QueueState` | Clear all jobs |
+| `get_status` | — | `QueueState` | Current queue state |
+| `get_history` | — | `Vec<HistoryEntry>` | Job history |
+| `clear_history` | — | `()` | Clear history |
+| `set_runner_path` | `path: String` | `RunnerStatus` | Set sidecar path |
+| `get_runner_status` | — | `RunnerStatus` | Sidecar config status |
+| `write_log_file` | `path, content: String` | `()` | Write log to disk |
+| `get_file_metadata` | `path: String` | `FileMetadata` | Get file size |
 
 ## Event Types
-- `queueState`
-- `jobProgress`
-- `jobLog`
-- `jobFinished`
-- `jobFailed`
-- `historyUpdated`
+- `pipeline-progress` — Per-page progress during OCR
+- `queueState` — Queue start/stop/empty
+- `jobProgress` — Job status change
+- `jobFinished` — Job completed/failed/cancelled
+- `historyUpdated` — History modified
 
 ## Concurrency Strategy
-- Default: `min(2, physical_cores / 2)` concurrent jobs.
-- If safe mode enabled: 1 concurrent job.
-- Per-job `--jobs` value:
-  - If multiple concurrent jobs: 1-2
-  - If single job: cores - 1
+- Rayon thread pool for CPU-bound image preprocessing (default: `cores - 2`, min 1).
+- Async semaphore limits concurrent file processing (default: `max(1, cores / 2)`).
+- Tokio runtime for async I/O and Tauri event emission.
 
-## Sidecar Bundling
-- OS-specific bundles stored under `resources/`.
-- Rust resolves the resource path using Tauri APIs.
+## OCR Pipeline (Rust-native)
+```
+PDF load → page image extraction → downsample → denoise →
+binarize (Otsu/Bradley-Roth/Fixed) → morphology → deskew (Radon/Hough) →
+Tesseract FFI OCR → compress (CCITT G4 / FlateDecode) →
+replace image streams → save output
+```

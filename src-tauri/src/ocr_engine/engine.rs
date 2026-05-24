@@ -9,24 +9,29 @@ use crate::ocr_engine::error::PipelineError;
 use crate::ocr_engine::image::{downsample_to_dpi, preprocess, BitonalImage};
 use crate::ocr_engine::ingest::{enqueue_files, IngestItem};
 use crate::ocr_engine::ocr::TessApi;
-use crate::ocr_engine::pdf::{encode_ccitt_g4, encode_flate, extract_page_images, finalize, load_document, replace_page_images};
+use crate::ocr_engine::pdf::{encode_ccitt_g4, encode_flate, finalize, for_each_page_image, load_document, replace_page_images};
 use crate::ocr_engine::progress::ProgressTracker;
 use crate::ocr_engine::runtime::RuntimeResources;
 use crate::ocr_engine::types::{CompressionMode, OcrSettings, PipelineStatus, ProcessingConfig};
 
+/// Orchestrates the OCR pipeline: ingests files, acquires semaphore permits,
+/// and delegates per-file processing to `process_single_file`.
 #[derive(Clone)]
 pub struct Engine {
     runtime: std::sync::Arc<RuntimeResources>,
 }
 
 impl Engine {
+    /// Creates a new engine with a runtime built from `config`.
     pub fn new(config: &ProcessingConfig, _settings: &OcrSettings) -> Self {
         Self {
             runtime: std::sync::Arc::new(crate::ocr_engine::runtime::build_runtime(config)),
         }
     }
 
-pub async fn process_files(
+/// Processes all files in `items` sequentially, respecting the concurrency
+    /// semaphore. Emits progress events and returns on first error or cancellation.
+    pub async fn process_files(
     &self,
     app: tauri::AppHandle,
     config: ProcessingConfig,
@@ -35,18 +40,24 @@ pub async fn process_files(
     channel_capacity: usize,
     cancelled: Arc<AtomicBool>,
 ) -> Result<(), PipelineError> {
+    let count = items.len();
+    tracing::info!(target: "knox::engine", count, "processing batch");
     let (tx, mut rx) = mpsc::channel::<IngestItem>(channel_capacity);
-    let tracker = ProgressTracker::new(items.len() as u32);
+    let tracker = ProgressTracker::new(count as u32);
     let ingest = enqueue_files(tx, items);
 
     tokio::spawn(async move {
-        let _ = ingest.await;
+        if let Err(e) = ingest.await {
+            tracing::error!(target: "knox::engine", error = %e, "ingest channel failed");
+        }
     });
 
     while let Some(item) = rx.recv().await {
         if cancelled.load(Ordering::SeqCst) {
+            tracing::warn!(target: "knox::engine", "batch cancelled");
             return Err(PipelineError::Cancelled);
         }
+        tracing::info!(target: "knox::engine", job_id = %item.job_id, path = %item.path.display(), "processing file");
         let semaphore = self.runtime.file_semaphore.clone();
         let permit = semaphore.acquire_owned().await.map_err(|_| {
             PipelineError::Channel("file semaphore closed".to_string())
@@ -59,19 +70,23 @@ pub async fn process_files(
         let job_id = item.job_id.clone();
         let result = process_single_file(pool, app.clone(), tracker.clone(), config, settings, item, cancelled.clone()).await;
         drop(permit);
-        if let Err(err) = result {
-            if !matches!(&err, PipelineError::Cancelled) {
+        if let Err(err) = &result {
+            if !matches!(err, PipelineError::Cancelled) {
+                tracing::error!(target: "knox::engine", job_id = %job_id, error = %err, "file processing failed");
                 tracker.emit(
                     &app,
-                    job_id,
+                    job_id.clone(),
                     PipelineStatus::Failed,
                     0,
                     0,
                     Some(err.to_string()),
                 );
             }
+        }
+        if let Err(err) = result {
             return Err(err);
         }
+        tracing::info!(target: "knox::engine", job_id = %job_id, "file completed");
     }
 
     Ok(())
@@ -92,20 +107,21 @@ async fn process_single_file(
     let job_id = item.job_id.clone();
     let output_path = item.output_path.clone();
 
+    tracing::info!(target: "knox::engine", job_id, "starting file processing");
     tracker.emit(&app, job_id.clone(), PipelineStatus::Processing, 0, 0, None);
 
     let mut document = load_document(input_path)?;
-    let page_images = extract_page_images(&document, settings.existing_text.clone())?;
-    let total_pages = page_images.len() as u32;
-
+    let total_pages = document.get_pages().len() as u32;
+    tracing::info!(target: "knox::engine", job_id, total_pages, "document loaded");
     let mut replacements: BTreeMap<u32, lopdf::Stream> = BTreeMap::new();
-        let tess = TessApi::new(&config.tessdata_path, &config.languages)?;
-        tess.set_page_seg_mode(settings.psm.clone().into())?;
+    let tess = TessApi::new(&config.tessdata_path, &config.languages)?;
+    tess.set_page_seg_mode(settings.psm.clone().into())?;
 
-    for page in page_images {
+    for_each_page_image(&document, settings.existing_text.clone(), |page| {
         if cancelled.load(Ordering::SeqCst) {
             return Err(PipelineError::Cancelled);
         }
+        tracing::debug!(target: "knox::engine", job_id, page = page.page_number, total_pages, "processing page");
         tracker.emit(
             &app,
             job_id.clone(),
@@ -128,8 +144,10 @@ async fn process_single_file(
             ocr_image.width() as i32,
         )?;
         let _ = tess.get_text()?;
-        tracker.record_page_time(start.elapsed().as_millis() as u64);
+        let elapsed = start.elapsed().as_millis() as u64;
+        tracker.record_page_time(elapsed);
 
+        tracing::debug!(target: "knox::engine", job_id, page = page.page_number, elapsed_ms = elapsed, "page OCR done");
         tracker.emit(
             &app,
             job_id.clone(),
@@ -146,12 +164,15 @@ async fn process_single_file(
             _ => encode_flate(ocr_image.width(), ocr_image.height(), ocr_image.into_raw())?,
         };
         replacements.insert(page.page_number, stream);
-    }
+        Ok(())
+    })?;
 
     if cancelled.load(Ordering::SeqCst) {
+        tracing::warn!(target: "knox::engine", job_id, "file cancelled mid-processing");
         return Err(PipelineError::Cancelled);
     }
     replace_page_images(&mut document, replacements)?;
+    tracing::debug!(target: "knox::engine", job_id, "image replacement done");
     finalize(&mut document, &output_path, settings.archive_enforcement)
         .map_err(|e| PipelineError::PdfParse(format!("save failed: {e}")))?;
 

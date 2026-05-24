@@ -6,19 +6,28 @@ use rayon::prelude::*;
 use crate::ocr_engine::error::PipelineError;
 use crate::ocr_engine::types::{BinarizationMode, DeskewMode, OcrSettings};
 
+/// Result of preprocessing: a grayscale image ready for OCR and an optional
+/// 1-bit bitonal image for CCITT G4 compression.
 #[derive(Clone, Debug)]
 pub struct ProcessedImage {
+    /// Grayscale image fed to Tesseract.
     pub ocr_image: GrayImage,
+    /// Bitonal (1-bit) version for CCITT compression, if applicable.
     pub bitonal: Option<BitonalImage>,
 }
 
+/// A 1-bit-per-pixel image suitable for CCITT G4 encoding.
 #[derive(Clone, Debug)]
 pub struct BitonalImage {
+    /// Packed bit data (MSB-first, row-major).
     pub data: Vec<u8>,
+    /// Image width in pixels.
     pub width: u32,
+    /// Image height in pixels.
     pub height: u32,
 }
 
+/// Applies denoising, binarization, morphology, and deskew to prepare an image for OCR.
 pub fn preprocess(
     image: &GrayImage,
     settings: &OcrSettings,
@@ -122,6 +131,10 @@ fn otsu_binarize_with_threshold(image: &GrayImage, threshold: u8) -> GrayImage {
     out
 }
 
+/// Applies morphological opening (erode → dilate) followed by closing (dilate → erode)
+/// to remove small specks (noise) and fill small holes in a binary-like image.
+/// Uses a 3×3 structuring element. The order is: erode → dilate → dilate → erode,
+/// which is equivalent to open-close.
 fn morphological_open_close(image: &GrayImage) -> GrayImage {
     let opened = dilate(&erode(image));
     erode(&dilate(&opened))
@@ -211,6 +224,15 @@ fn deskew_hough(image: &GrayImage) -> Result<GrayImage, PipelineError> {
     Ok(rotate_image(image, -mean))
 }
 
+/// Converts a grayscale image to a 1-bit-per-pixel packed byte buffer.
+///
+/// # Convention
+/// Black pixels (value 0) are encoded as bit `1`, white pixels (value 255) as bit `0`.
+/// This matches the `BlackIs1: true` convention used in `encode_ccitt_g4` in `pdf.rs`,
+/// and is the inverse of `imageproc`'s default convention where white = 1.
+///
+/// Bits are packed MSB-first within each byte, left-to-right across the row.
+/// Each row is padded to a full byte boundary.
 fn to_bitonal_1bpp(image: &GrayImage) -> (Vec<u8>, u32, u32) {
     let width = image.width();
     let height = image.height();
@@ -303,6 +325,7 @@ fn downscale_for_radon(image: &GrayImage, max_dim: u32) -> GrayImage {
     )
 }
 
+/// Down/up-samples the image to approximate `target_dpi`, relative to a 300 DPI baseline.
 pub fn downsample_to_dpi(image: &GrayImage, target_dpi: u16) -> GrayImage {
     let scale = (target_dpi as f32 / 300.0).clamp(0.25, 4.0);
     if (scale - 1.0).abs() < 0.01 {
@@ -328,4 +351,161 @@ fn rotate_image(image: &GrayImage, angle_degrees: f32) -> GrayImage {
         imageproc::geometric_transformations::Interpolation::Bilinear,
         Luma([255]),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::Luma;
+
+    fn make_checkerboard(w: u32, h: u32) -> GrayImage {
+        let mut img = GrayImage::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                img.put_pixel(
+                    x,
+                    y,
+                    if (x + y) % 2 == 0 {
+                        Luma([0])
+                    } else {
+                        Luma([255])
+                    },
+                );
+            }
+        }
+        img
+    }
+
+    fn make_white(w: u32, h: u32) -> GrayImage {
+        GrayImage::from_pixel(w, h, Luma([255]))
+    }
+
+    fn make_black(w: u32, h: u32) -> GrayImage {
+        GrayImage::from_pixel(w, h, Luma([0]))
+    }
+
+    fn default_settings() -> OcrSettings {
+        OcrSettings {
+            binarization: BinarizationMode::Otsu,
+            fixed_threshold: 128,
+            deskew_mode: DeskewMode::Disabled,
+            denoise_level: 0,
+            existing_text: crate::ocr_engine::types::ExistingTextMode::Skip,
+            psm: crate::ocr_engine::types::PageSegMode::Auto,
+            compression: crate::ocr_engine::types::CompressionMode::Ccitt,
+            resolution_dpi: 300,
+            archive_enforcement: false,
+        }
+    }
+
+    #[test]
+    fn denoise_level_zero_is_noop() {
+        let img = make_checkerboard(10, 10);
+        let result = apply_denoise(&img, 0);
+        assert_eq!(result.as_raw(), img.as_raw());
+    }
+
+    #[test]
+    fn denoise_level_one_changes_image() {
+        let img = make_checkerboard(10, 10);
+        let result = apply_denoise(&img, 1);
+        // Median filter at level 1 should change checkerboard
+        assert_ne!(result.as_raw(), img.as_raw());
+    }
+
+    #[test]
+    fn otsu_binarize_threshold_low_makes_mostly_black() {
+        let img = make_white(4, 4);
+        // White image (all 255), threshold=200: 255 > 200 → all white
+        let result = otsu_binarize_with_threshold(&img, 200);
+        assert!(result.pixels().all(|p| p[0] == 255));
+    }
+
+    #[test]
+    fn otsu_binarize_threshold_high_makes_mostly_white() {
+        let img = make_black(4, 4);
+        // Black image (all 0), threshold=100: 0 > 100 → false, all black
+        let result = otsu_binarize_with_threshold(&img, 100);
+        assert!(result.pixels().all(|p| p[0] == 0));
+    }
+
+    #[test]
+    fn is_binarizable_all_white_is_false() {
+        let img = make_white(10, 10);
+        assert!(!is_binarizable(&img, 128));
+    }
+
+    #[test]
+    fn is_binarizable_all_black_is_false() {
+        let img = make_black(10, 10);
+        assert!(!is_binarizable(&img, 128));
+    }
+
+    #[test]
+    fn is_binarizable_checkerboard_is_true() {
+        let img = make_checkerboard(10, 10);
+        // black ratio should be ~0.5, within [0.02, 0.7]
+        assert!(is_binarizable(&img, 128));
+    }
+
+    #[test]
+    fn downsample_same_dpi_is_noop() {
+        let img = make_checkerboard(100, 100);
+        let result = downsample_to_dpi(&img, 300);
+        assert_eq!(result.dimensions(), (100, 100));
+    }
+
+    #[test]
+    fn downsample_150_dpi_half_size() {
+        let img = make_checkerboard(100, 100);
+        let result = downsample_to_dpi(&img, 150);
+        assert!(result.width() < 100);
+    }
+
+    #[test]
+    fn rotate_zero_is_noop() {
+        let img = make_checkerboard(10, 10);
+        let result = rotate_image(&img, 0.0);
+        assert_eq!(result.as_raw(), img.as_raw());
+    }
+
+    #[test]
+    fn to_bitonal_round_trip() {
+        let img = make_checkerboard(16, 16);
+        let (data, w, h) = to_bitonal_1bpp(&img);
+        assert_eq!(w, 16);
+        assert_eq!(h, 16);
+        // Each row = (16 + 7) / 8 = 2 bytes
+        // 16 rows = 32 bytes
+        assert_eq!(data.len(), 32);
+    }
+
+    #[test]
+    fn binarization_otsu_produces_binary() {
+        let img = make_checkerboard(20, 20);
+        let settings = OcrSettings {
+            binarization: BinarizationMode::Otsu,
+            ..default_settings()
+        };
+        let result = apply_binarization(&img, &settings);
+        // All pixels should be 0 or 255
+        for p in result.pixels() {
+            assert!(p[0] == 0 || p[0] == 255, "pixel value must be binary");
+        }
+    }
+
+    #[test]
+    fn est_skew_clean_image_near_zero() {
+        let img = make_checkerboard(100, 100);
+        let angle = estimate_skew_angle_radon(&img).unwrap();
+        // Should be close to 0 for a symmetric image
+        assert!(angle.abs() < 2.0, "angle should be near 0");
+    }
+
+    #[test]
+    fn morphology_level_zero_is_noop() {
+        let img = make_checkerboard(10, 10);
+        let result = apply_morphology(&img, 0);
+        assert_eq!(result.as_raw(), img.as_raw());
+    }
 }

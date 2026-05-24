@@ -2,14 +2,14 @@
 
 ## Overview
 
-Offline desktop application that batch-processes PDFs using OCRmyPDF to clean, OCR, and compress documents with high throughput and consistent output quality.
+Offline desktop application that batch-processes PDFs using a Rust-native OCR pipeline (Tesseract FFI) to clean, OCR, and compress documents with high throughput and consistent output quality.
 
 ## Goals
 
 - Offline, cross-platform OCR for PDF files.
 - Batch processing optimized for throughput.
-- PDF/A output by default.
-- Always re-OCR (do not preserve existing text layer).
+- PDF/A output by default (togglable in advanced panel).
+- Always re-OCR (do not preserve existing text layer by default).
 - Simple batch UI with a hidden advanced panel.
 
 ## Non-goals (v1)
@@ -29,37 +29,44 @@ Offline desktop application that batch-processes PDFs using OCRmyPDF to clean, O
 - Multi-file batch processing with a queue and per-file progress.
 - Output folder required; default output naming suffix `_cleaned`.
 - OCR languages: English + Spanish.
-- Lossy compression allowed (default on).
+- Compression options: CCITT Group 4 (lossless for bitonal) or FlateDecode.
 - PDF/A output by default (user can toggle in advanced panel).
 - Local job history (no cloud), with retention limit.
 - Safe mode option in advanced panel.
 
 ## OCR Pipeline Defaults
 
-- `--language eng+spa`
-- `--output-type pdfa`
-- `--force-ocr`
-- `--optimize 3`
-- Lossy compression enabled (JPEG quality ~60 by default)
+- Languages: `eng` (single language by default, configurable)
+- Binarization: Otsu adaptive thresholding
+- Deskew: Radon transform
+- Denoise: median filter (level 2)
+- Page segmentation: fully automatic (PSM auto)
+- Compression: CCITT Group 4 (for bitonal images; FlateDecode fallback)
+- Resolution: 300 DPI
+- PDF/A enforcement: off (togglable)
 
 ## Advanced Options
 
-- Lossy quality slider.
-- Deskew.
-- Clean.
-- Remove background.
-- Preserve metadata toggle.
-- Log export toggle.
-- Threading overrides (advanced).
+- Thread pool capacity slider.
+- In-memory page cap slider.
+- Binarization mode (Otsu / Bradley-Roth / Fixed).
+- Fixed threshold slider.
+- Deskew algorithm (Radon / Hough / Disabled).
+- Despeckle intensity slider.
+- Existing text handling (Skip / Rasterize).
+- Tesseract page segmentation mode.
+- Language string input.
+- Compression codec (CCITT G4 / FlateDecode).
+- Output resolution (150 / 300 / 600 DPI).
+- PDF/A compliance toggle.
 
 ## Safe Mode (Advanced)
 
 When enabled:
 
-- Disable lossy compression.
-- Reduce optimization to `--optimize 1`.
-- Disable aggressive cleanup (e.g., remove background).
-- Force single-job concurrency.
+- Disable aggressive denoising.
+- Reduce concurrency to single-file.
+- Force FlateDecode compression.
 
 ## History (Offline Only)
 
@@ -72,7 +79,7 @@ When enabled:
 - No network calls.
 - Strict path validation and no unintended overwrites.
 - Use OS temp directories and always clean up temp artifacts.
-- Run sidecar with minimal environment.
+- Run sidecar (if any) with minimal environment.
 - Sanitize logs and limit export locations to user-selected output folder.
 
 ## Performance Requirements
@@ -89,14 +96,11 @@ When enabled:
 
 ## Bundled Dependencies
 
-- Python runtime
-- OCRmyPDF
-- Tesseract
-- Ghostscript
-- QPDF
-- Leptonica
-- tessdata: eng, spa
+- Tesseract (via tesseract-sys FFI)
+- Leptonica (via leptonica-sys)
+- tessdata: eng (+ user-configurable)
 
 ## Licensing
 
-- Include AGPL notices for Ghostscript and bundled dependencies.
+- GPL for Tesseract/Leptonica linkage.
+- Include AGPL notices for any AGPL dependencies.

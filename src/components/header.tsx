@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Sun, Moon, Settings, Bug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+/** Header component with greeting, theme toggle, and activity panel toggle. */
 interface HeaderProps {
   greeting: string;
   showActivity: boolean;
   onToggleActivity: () => void;
 }
 
+/** Top bar with greeting, theme toggle, activity toggle, and settings button. */
 export function Header({
   greeting,
   showActivity,

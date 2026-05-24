@@ -6,10 +6,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { cn } from "@/lib/utils";
 import { type FileItem } from "@/types";
 
+/** Drop zone that accepts PDF files via drag-and-drop or browse dialog. */
 interface FileDropZoneProps {
   onFilesAdded: (files: FileItem[]) => void;
 }
 
+/** Converts file paths to `FileItem` entries, filtering non-PDF files. */
 async function pathsToFileItems(paths: string[]): Promise<FileItem[]> {
   const items: FileItem[] = [];
   for (const path of paths) {
@@ -32,6 +34,7 @@ async function pathsToFileItems(paths: string[]): Promise<FileItem[]> {
   return items;
 }
 
+/** Drag-and-drop zone for PDF files with browse fallback. */
 export function FileDropZone({ onFilesAdded }: FileDropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
 

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
 use image::GrayImage;
@@ -7,20 +8,70 @@ use lopdf::{Dictionary, Document, Object, Stream};
 use crate::ocr_engine::error::PipelineError;
 use crate::ocr_engine::types::ExistingTextMode;
 
+/// Metadata for a single PDF page extracted for OCR processing.
 pub struct PdfPageInfo {
+    /// 1-indexed page number within the PDF.
     pub page_number: u32,
+    /// Decoded grayscale image of the page.
     pub image: image::GrayImage,
 }
 
+const MAX_PDF_SIZE: u64 = 512 * 1024 * 1024;
+
+/// Loads a PDF document from the given filesystem path.
+/// Rejects files larger than 512 MB to prevent OOM from decompression bombs.
 pub fn load_document(path: &Path) -> Result<Document, PipelineError> {
-    Document::load(path).map_err(|e| PipelineError::PdfParse(e.to_string()))
+    let metadata = std::fs::metadata(path).map_err(PipelineError::Io)?;
+    if metadata.len() > MAX_PDF_SIZE {
+        let msg = format!(
+            "PDF too large: {} bytes (max {} bytes)",
+            metadata.len(),
+            MAX_PDF_SIZE
+        );
+        tracing::error!(target: "knox::pdf", "{msg}");
+        return Err(PipelineError::PdfParse(msg));
+    }
+    tracing::info!(target: "knox::pdf", path = %path.display(), size = metadata.len(), "loading pdf");
+    let doc = Document::load(path).map_err(|e| PipelineError::PdfParse(e.to_string()))?;
+    Ok(doc)
 }
 
-pub fn extract_page_images(
+/// Returns `true` if the PDF page contains text operators (Tj, TJ, ', ").
+/// Used to skip OCR on pages that already have a text layer.
+/// Parses the page's content stream, which is O(operations) in the number of
+/// PDF drawing operations — returns early on first text operator found.
+fn page_has_text(doc: &Document, page_id: lopdf::ObjectId) -> Result<bool, PipelineError> {
+    let content_data = match doc.get_page_content(page_id) {
+        Ok(data) => data,
+        Err(_) => return Ok(false),
+    };
+    if content_data.is_empty() {
+        return Ok(false);
+    }
+    let content = match lopdf::content::Content::decode(&content_data) {
+        Ok(c) => c,
+        Err(_) => return Ok(false),
+    };
+    for operation in &content.operations {
+        match operation.operator.as_str() {
+            "Tj" | "TJ" | "'" | "\"" => return Ok(true),
+            _ => {}
+        }
+    }
+    Ok(false)
+}
+
+/// Processes each page image through a callback, decoding one page at a time.
+/// Images are dropped after the callback returns, keeping peak memory proportional
+/// to a single page instead of loading all pages into RAM at once.
+pub fn for_each_page_image<F>(
     doc: &Document,
     existing_text: ExistingTextMode,
-) -> Result<Vec<PdfPageInfo>, PipelineError> {
-    let mut out = Vec::new();
+    mut f: F,
+) -> Result<(), PipelineError>
+where
+    F: FnMut(PdfPageInfo) -> Result<(), PipelineError>,
+{
     let pages = doc.get_pages();
     for (page_number, page_id) in pages {
         let page = doc
@@ -68,40 +119,25 @@ pub fn extract_page_images(
                 continue;
             }
             let image = decode_stream_image(stream, doc)?;
-            out.push(PdfPageInfo {
+            f(PdfPageInfo {
                 page_number: page_number as u32,
                 image,
-            });
+            })?;
         }
     }
-    Ok(out)
+    Ok(())
 }
 
-fn page_has_text(doc: &Document, page_id: lopdf::ObjectId) -> Result<bool, PipelineError> {
-    let content_data = match doc.get_page_content(page_id) {
-        Ok(data) => data,
-        Err(_) => return Ok(false),
-    };
-    let content = match lopdf::content::Content::decode(&content_data) {
-        Ok(c) => c,
-        Err(_) => return Ok(false),
-    };
-    for operation in &content.operations {
-        match operation.operator.as_str() {
-            "Tj" | "TJ" | "'" | "\"" => return Ok(true),
-            _ => {}
-        }
-    }
-    Ok(false)
-}
-
+/// Replaces image XObject streams in the document with the given compressed streams.
+/// Each page's first image stream is replaced using ownership transfer from the map
+/// (no cloning), so the caller should not reuse the map after this call.
 pub fn replace_page_images(
     doc: &mut Document,
-    replacements: BTreeMap<u32, Stream>,
+    mut replacements: BTreeMap<u32, Stream>,
 ) -> Result<(), PipelineError> {
     let pages = doc.get_pages();
     for (page_number, page_id) in pages {
-        let Some(new_stream) = replacements.get(&(page_number as u32)) else {
+        let Some(new_stream) = replacements.remove(&(page_number as u32)) else {
             continue;
         };
 
@@ -140,8 +176,7 @@ pub fn replace_page_images(
             if subtype != Some(&Object::Name(b"Image".to_vec())) {
                 continue;
             }
-            doc.objects
-                .insert(obj_id, Object::Stream(new_stream.clone()));
+            doc.objects.insert(obj_id, Object::Stream(new_stream));
             break;
         }
     }
@@ -167,6 +202,13 @@ fn resolve_dict<'a>(
     Ok(None)
 }
 
+/// Encodes a 1-bit bitonal image as a CCITT G4-compressed PDF image stream.
+///
+/// # CCITT G4 Convention
+/// `BlackIs1: true` — a 1-bit in the input data represents a black pixel.
+/// This matches the encoding produced by `to_bitonal_1bpp` in `image.rs`,
+/// where `pixel == 0` (black) → bit `1`.
+/// This convention is the inverse of `imageproc`'s default (white = 1).
 pub fn encode_ccitt_g4(width: u32, height: u32, bitonal: Vec<u8>) -> Stream {
     let mut dict = Dictionary::new();
     dict.set("Type", "XObject");
@@ -187,7 +229,17 @@ pub fn encode_ccitt_g4(width: u32, height: u32, bitonal: Vec<u8>) -> Stream {
     Stream::new(dict, bitonal)
 }
 
+/// Encodes an 8-bit grayscale image as a FlateDecode-compressed PDF image stream.
 pub fn encode_flate(width: u32, height: u32, data: Vec<u8>) -> Result<Stream, PipelineError> {
+    use std::io::Write;
+    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+    encoder
+        .write_all(&data)
+        .map_err(|e| PipelineError::PdfParse(format!("flate compress: {e}")))?;
+    let compressed = encoder
+        .finish()
+        .map_err(|e| PipelineError::PdfParse(format!("flate finish: {e}")))?;
+
     let mut dict = Dictionary::new();
     dict.set("Type", "XObject");
     dict.set("Subtype", "Image");
@@ -197,9 +249,10 @@ pub fn encode_flate(width: u32, height: u32, data: Vec<u8>) -> Result<Stream, Pi
     dict.set("BitsPerComponent", 8);
     dict.set("Filter", "FlateDecode");
 
-    Ok(Stream::new(dict, data))
+    Ok(Stream::new(dict, compressed))
 }
 
+/// Saves the document to `output`, optionally adding PDF/A metadata and compressing.
 pub fn finalize(
     doc: &mut Document,
     output: &Path,
@@ -214,6 +267,11 @@ pub fn finalize(
         .map_err(|e| PipelineError::PdfParse(e.to_string()))
 }
 
+/// Decodes a PDF XObject image stream into a grayscale image.
+/// Supports CCITT G4 (with optional JBIG2 refinement), FlateDecode (gray/RGB),
+/// DCTDecode (JPEG), and raw data. Returns a PipelineError for unsupported or
+/// corrupted streams. JBIG2 decoding is wrapped in `catch_unwind` with
+/// size/dimension limits (50 MB, 10k pixel cap) to guard against malicious payloads.
 pub(crate) fn decode_stream_image(
     stream: &Stream,
     doc: &Document,
@@ -248,6 +306,15 @@ pub(crate) fn decode_stream_image(
                 .ok_or_else(|| PipelineError::PdfParse("invalid image buffer".to_string()))
         }
         "JBIG2Decode" => {
+            // Prevent decompression bombs: reject JBIG2 streams larger than 50 MB
+            const JBIG2_MAX_BYTES: usize = 50 * 1024 * 1024;
+            if stream.content.len() > JBIG2_MAX_BYTES {
+                return Err(PipelineError::PdfParse(format!(
+                    "JBIG2 stream too large: {} bytes (max {})",
+                    stream.content.len(),
+                    JBIG2_MAX_BYTES
+                )));
+            }
             let globals = stream
                 .dict
                 .get(b"JBIG2Globals")
@@ -261,8 +328,27 @@ pub(crate) fn decode_stream_image(
                         None
                     }
                 });
-            let jbig2_image = pdfluent_jbig2::decode_embedded(&stream.content, globals)
-                .map_err(|e| PipelineError::PdfParse(format!("JBIG2: {e}")))?;
+            // JBIG2 is historically dangerous (CVE-2015-...), isolate with catch_unwind
+            let jbig2_result = catch_unwind(AssertUnwindSafe(|| {
+                pdfluent_jbig2::decode_embedded(&stream.content, globals)
+            }));
+            let jbig2_image = match jbig2_result {
+                Ok(Ok(img)) => img,
+                Ok(Err(e)) => {
+                    return Err(PipelineError::PdfParse(format!("JBIG2: {e}")));
+                }
+                Err(panic) => {
+                    tracing::error!(target: "knox::pdf", "JBIG2 decoder panicked: {:?}", panic);
+                    return Err(PipelineError::PdfParse("JBIG2 decoder panic".to_string()));
+                }
+            };
+            // Reject unreasonably large decoded dimensions (> 10k pixels per side)
+            if jbig2_image.width > 10_000 || jbig2_image.height > 10_000 {
+                return Err(PipelineError::PdfParse(format!(
+                    "JBIG2 image too large: {}x{}",
+                    jbig2_image.width, jbig2_image.height
+                )));
+            }
             struct PixelCollector(Vec<u8>);
             impl pdfluent_jbig2::Decoder for PixelCollector {
                 fn push_pixel(&mut self, black: bool) {
@@ -293,6 +379,153 @@ pub(crate) fn decode_stream_image(
         other => Err(PipelineError::PdfParse(format!(
             "unsupported image filter: {other}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::{Dictionary, Object};
+
+    fn get_ok<'a>(dict: &'a Dictionary, key: &[u8]) -> &'a Object {
+        dict.get(key).expect("key should exist")
+    }
+
+    #[test]
+    fn encode_ccitt_g4_dict_fields() {
+        let data = vec![0u8; 32];
+        let stream = encode_ccitt_g4(16, 16, data);
+        let dict = &stream.dict;
+        assert!(matches!(get_ok(dict, b"Subtype"), Object::Name(n) if n == b"Image"));
+        assert!(matches!(get_ok(dict, b"Width"), Object::Integer(16)));
+        assert!(matches!(get_ok(dict, b"Height"), Object::Integer(16)));
+        assert!(matches!(
+            get_ok(dict, b"BitsPerComponent"),
+            Object::Integer(1)
+        ));
+        assert!(matches!(get_ok(dict, b"Filter"), Object::Name(n) if n == b"CCITTFaxDecode"));
+        let decode_params = dict.get(b"DecodeParms").unwrap();
+        if let Object::Dictionary(dp) = decode_params {
+            assert!(matches!(dp.get(b"K"), Ok(Object::Integer(-1))));
+            assert!(matches!(dp.get(b"Columns"), Ok(Object::Integer(16))));
+            assert!(matches!(dp.get(b"Rows"), Ok(Object::Integer(16))));
+            assert!(matches!(dp.get(b"BlackIs1"), Ok(Object::Boolean(true))));
+        } else {
+            panic!("DecodeParms should be a dictionary");
+        }
+    }
+
+    #[test]
+    fn encode_flate_dict_fields() {
+        let data = vec![128u8; 256];
+        let stream = encode_flate(16, 16, data).unwrap();
+        let dict = &stream.dict;
+        assert!(matches!(get_ok(dict, b"Subtype"), Object::Name(n) if n == b"Image"));
+        assert!(matches!(get_ok(dict, b"Width"), Object::Integer(16)));
+        assert!(matches!(get_ok(dict, b"Height"), Object::Integer(16)));
+        assert!(matches!(
+            get_ok(dict, b"BitsPerComponent"),
+            Object::Integer(8)
+        ));
+        assert!(matches!(get_ok(dict, b"Filter"), Object::Name(n) if n == b"FlateDecode"));
+        assert!(matches!(get_ok(dict, b"ColorSpace"), Object::Name(n) if n == b"DeviceGray"));
+    }
+
+    #[test]
+    fn finalize_saves_document() {
+        let mut doc = Document::new();
+        let dir = std::env::temp_dir();
+        let path = dir.join("knox_test_finalize.pdf");
+        let result = finalize(&mut doc, &path, false);
+        assert!(result.is_ok());
+        assert!(path.exists());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn finalize_pdfa_adds_metadata() {
+        let mut doc = Document::new();
+        // Build a minimal valid document with a catalog
+        let pages_id = doc.new_object_id();
+        let mut pages_dict = Dictionary::new();
+        pages_dict.set("Type", "Pages");
+        pages_dict.set("Kids", Vec::<Object>::new());
+        pages_dict.set("Count", 0);
+        doc.add_object(lopdf::Object::Dictionary(pages_dict));
+        let mut catalog = Dictionary::new();
+        catalog.set("Type", "Catalog");
+        catalog.set("Pages", Object::Reference(pages_id));
+        let catalog_id = doc.add_object(lopdf::Object::Dictionary(catalog));
+        doc.trailer.set("Root", Object::Reference(catalog_id));
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("knox_test_pdfa.pdf");
+        let result = finalize(&mut doc, &path, true);
+        assert!(result.is_ok());
+
+        let loaded = Document::load(&path).unwrap();
+        let catalog = loaded.catalog().unwrap();
+        assert!(
+            catalog.get(b"Metadata").is_ok(),
+            "PDF/A should have Metadata"
+        );
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn load_document_nonexistent_fails() {
+        let result = load_document(Path::new("/nonexistent/path.pdf"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn load_document_rejects_zero_byte_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("knox_test_empty.pdf");
+        std::fs::write(&path, b"").unwrap();
+        let result = load_document(&path);
+        assert!(result.is_err());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn load_document_rejects_junk() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("knox_test_junk.pdf");
+        std::fs::write(&path, b"not a pdf file at all").unwrap();
+        let result = load_document(&path);
+        assert!(result.is_err());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn for_each_page_image_zero_pages() {
+        let doc = Document::new();
+        let mut count = 0u32;
+        let result = for_each_page_image(&doc, ExistingTextMode::Skip, |_page| {
+            count += 1;
+            Ok(())
+        });
+        assert!(result.is_ok());
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn load_document_and_save_round_trip() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("knox_test_roundtrip.pdf");
+        finalize(&mut Document::new(), &path, false).unwrap();
+        let loaded = load_document(&path);
+        assert!(loaded.is_ok());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn replace_page_images_empty_doc() {
+        let mut doc = Document::new();
+        let replacements = BTreeMap::new();
+        let result = replace_page_images(&mut doc, replacements);
+        assert!(result.is_ok());
     }
 }
 

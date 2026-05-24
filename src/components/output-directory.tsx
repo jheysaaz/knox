@@ -4,11 +4,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { FolderOpen } from "lucide-react";
 
+/** Controls for selecting and displaying the output directory. */
 interface OutputDirectoryProps {
   value: string;
   onChange: (value: string) => void;
 }
 
+/** Directory picker with text input and browse button. */
 export function OutputDirectory({ value, onChange }: OutputDirectoryProps) {
   const handleBrowse = useCallback(async () => {
     try {

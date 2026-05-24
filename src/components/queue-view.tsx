@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { type FileItem } from "@/types";
 
+/** Displays the file processing queue with status, progress, and controls. */
 interface QueueViewProps {
   files: FileItem[];
   onFileRemove: (id: string) => void;
@@ -24,6 +25,7 @@ interface QueueViewProps {
   isRunning?: boolean;
 }
 
+/** Displays the queue of files to process with per-file progress and action buttons. */
 export function QueueView({
   files,
   onFileRemove,

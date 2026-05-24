@@ -4,11 +4,14 @@ use std::ptr::NonNull;
 
 use crate::ocr_engine::error::PipelineError;
 
+/// Safe wrapper around the Tesseract C API (`TessBaseAPI`). All FFI calls are
+/// isolated with `catch_unwind` to prevent panics from propagating.
 pub struct TessApi {
     api: NonNull<tesseract_sys::TessBaseAPI>,
 }
 
 impl TessApi {
+    /// Initialises a new Tesseract API instance with the given tessdata path and languages.
     pub fn new(tessdata_path: &str, languages: &str) -> Result<Self, PipelineError> {
         let api = guard_unwind("TessBaseAPICreate", || unsafe {
             tesseract_sys::TessBaseAPICreate()
@@ -26,6 +29,7 @@ impl TessApi {
         Ok(Self { api })
     }
 
+    /// Sets the image data on the Tesseract API and runs recognition.
     pub fn set_image_bytes(
         &self,
         data: &[u8],
@@ -55,6 +59,7 @@ impl TessApi {
         Ok(())
     }
 
+    /// Retrieves the recognised UTF-8 text. The caller must have already called `set_image_bytes`.
     pub fn get_text(&self) -> Result<String, PipelineError> {
         let ptr = guard_unwind("TessBaseAPIGetUTF8Text", || unsafe {
             tesseract_sys::TessBaseAPIGetUTF8Text(self.api.as_ptr())
@@ -72,6 +77,7 @@ impl TessApi {
         Ok(text)
     }
 
+    /// Sets the page segmentation mode for the Tesseract engine.
     pub fn set_page_seg_mode(&self, mode: tesseract_sys::PageSegMode) -> Result<(), PipelineError> {
         guard_unwind("TessBaseAPISetPageSegMode", || unsafe {
             tesseract_sys::TessBaseAPISetPageSegMode(self.api.as_ptr(), mode as u32)
@@ -89,15 +95,20 @@ impl Drop for TessApi {
     }
 }
 
+/// Converts a `&str` to `CString`, returning an error if a nul byte is present.
 fn to_cstring(input: &str) -> Result<CString, PipelineError> {
     CString::new(input)
         .map_err(|NulError { .. }| PipelineError::FfiOcr("nul byte in tessdata path".to_string()))
 }
 
+/// Wraps a closure with `catch_unwind` to isolate panics (e.g. from FFI calls).
 fn guard_unwind<T>(label: &'static str, f: impl FnOnce() -> T) -> Result<T, PipelineError> {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(value) => Ok(value),
-        Err(_) => Err(PipelineError::PanicRecovered(format!("panic in {label}"))),
+        Err(panic) => {
+            tracing::error!(target: "knox::ocr", label, panic = ?panic, "FFI panic recovered");
+            Err(PipelineError::PanicRecovered(format!("panic in {label}")))
+        }
     }
 }
 

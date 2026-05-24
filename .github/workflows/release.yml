@@ -1,88 +1,225 @@
-name: release
+name: Release
 
 on:
-  workflow_dispatch:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: >
+          Version string (e.g., 1.0.0, 1.0.0-rc.1).
+          Use 'draft' for an unreleased build (artifacts uploaded to workflow run only).
+        required: true
+        default: draft
+      build_linux:
+        description: "Build for Linux (.deb / .AppImage)"
+        required: false
+        default: true
+        type: boolean
+      build_macos:
+        description: "Build for macOS (.dmg)"
+        required: false
+        default: true
+        type: boolean
+      build_windows:
+        description: "Build for Windows (.msi)"
+        required: false
+        default: true
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
+  # ── Setup ────────────────────────────────────────────────────────────────
+  # Single source of truth for: version resolution + build matrix.
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+      version: ${{ steps.resolve-version.outputs.version }}
+
+    steps:
+      # ── Version ────────────────────────────────────────────────────────
+      # Tag push  → strip v prefix (v1.0.0 → 1.0.0).
+      # Dispatch   → use input, or 0.0.0-draft.<ts> when input is 'draft'.
+      - id: resolve-version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "version=${VERSION}"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ inputs.version_tag }}" == "draft" ]]; then
+            VERSION="0.0.0-draft.$(date +%s)"
+            echo "version=${VERSION}"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION="${{ inputs.version_tag }}"
+            echo "version=${VERSION}"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Matrix ─────────────────────────────────────────────────────────
+      # Tag push   → all three platforms.
+      # Dispatch   → only the OSes the user ticked.
+      - id: build-matrix
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            MATRIX='{"include":[
+              {"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","bundle-ext":"linux"},
+              {"os":"macos-latest","target":"aarch64-apple-darwin","bundle-ext":"macos"},
+              {"os":"windows-latest","target":"x86_64-pc-windows-msvc","bundle-ext":"windows"}
+            ]}'
+          else
+            ENTRIES='[]'
+            if [[ "${{ inputs.build_linux }}" == "true" ]]; then
+              ENTRIES=$(echo "$ENTRIES" | jq -c '. + [{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","bundle-ext":"linux"}]')
+            fi
+            if [[ "${{ inputs.build_macos }}" == "true" ]]; then
+              ENTRIES=$(echo "$ENTRIES" | jq -c '. + [{"os":"macos-latest","target":"aarch64-apple-darwin","bundle-ext":"macos"}]')
+            fi
+            if [[ "${{ inputs.build_windows }}" == "true" ]]; then
+              ENTRIES=$(echo "$ENTRIES" | jq -c '. + [{"os":"windows-latest","target":"x86_64-pc-windows-msvc","bundle-ext":"windows"}]')
+            fi
+            # Fail early if nothing selected
+            if [[ "$ENTRIES" == "[]" ]]; then
+              echo "ERROR: At least one OS must be selected."
+              exit 1
+            fi
+            MATRIX="{\"include\":$ENTRIES}"
+          fi
+          echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
+
+  # ── Build Matrix ─────────────────────────────────────────────────────────
   build:
+    needs: setup
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            target: aarch64-apple-darwin
-            runner: macos-14
-            archive: tar.gz
-          - os: windows-2022
-            target: x86_64-pc-windows-msvc
-            runner: windows-2022
-            archive: zip
-          - os: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            runner: ubuntu-24.04
-            archive: tar.gz
-    runs-on: ${{ matrix.runner }}
-    env:
-      RUST_BACKTRACE: 1
-      CARGO_TERM_COLOR: always
-      OCR_LIBS_TAG: ocr-libs-v1
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
+      # ── Platform System Dependencies ──────────────────────────────────
+      # tesseract-sys & leptonica-sys use pkg-config on Unix, vcpkg on Windows.
+      #
+      # Linux:   apt .pc files → pkg-config finds them, -sys crates link dynamically.
+      # macOS:   Homebrew  .pc files → pkg-config finds them.
+      # Windows: vcpkg installs static libs → the vcpkg Rust build helper
+      #          (used internally by both -sys crates) discovers them via
+      #          VCPKG_ROOT with the default triplet x64-windows-static-md.
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Download OCR libs from release (macOS/Linux)
-        if: runner.os != 'Windows'
+      - name: Install system deps (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
         run: |
-          bash scripts/download-ocr-libs.sh "$OCR_LIBS_TAG" "${{ matrix.target }}"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev librsvg2-dev libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libtesseract-dev libleptonica-dev pkg-config build-essential
+          echo "=== pkg-config verification ==="
+          pkg-config --modversion tesseract
+          pkg-config --modversion lept
 
-      - name: Download OCR libs from release (Windows)
-        if: runner.os == 'Windows'
+      - name: Install system deps (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew install tesseract leptonica pkg-config
+          echo "=== pkg-config verification ==="
+          pkg-config --modversion tesseract
+          pkg-config --modversion lept
+
+      - name: Install system deps (Windows)
+        if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $archive = "ocr-libs-${{ matrix.target }}.zip"
-          gh release download "$env:OCR_LIBS_TAG" -p $archive -D .
-          Expand-Archive -Path $archive -DestinationPath src-tauri/third_party/native -Force
-          Remove-Item $archive
+          # vcpkg is pre-installed on GitHub Actions Windows runners at C:\vcpkg
+          $vcpkgRoot = "C:\vcpkg"
+          & "$vcpkgRoot\vcpkg" install tesseract:x64-windows-static-md leptonica:x64-windows-static-md
+          echo "VCPKG_ROOT=$vcpkgRoot" | Out-File -Append -FilePath $env:GITHUB_ENV
 
-      - name: Ensure OCR libs exist
-        run: |
-          test -d "src-tauri/third_party/native/${{ matrix.target }}"
-
-      - name: Install frontend deps
-        run: pnpm install --frozen-lockfile
-
-      - name: Build frontend
-        run: pnpm build
-
-      - name: Build Tauri app
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        run: pnpm tauri build
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      # ── Tools ─────────────────────────────────────────────────────────
+      - uses: pnpm/action-setup@v4
         with:
-          name: knox-${{ matrix.target }}
-          path: |
-            src-tauri/target/release/bundle/**
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      # ── Version Injection ─────────────────────────────────────────────
+      - name: Set version in Cargo.toml
+        shell: bash
+        run: |
+          VERSION="${{ needs.setup.outputs.version }}"
+          cd src-tauri
+          sed -i.bak "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+          rm -f Cargo.toml.bak
+          echo "Cargo.toml version → ${VERSION}"
+
+      # ── Build ─────────────────────────────────────────────────────────
+      # tauri-action builds and emits bundles under
+      #   src-tauri/target/release/bundle/<platform>/
+      # The recursive glob bundle/** picks up all installer types
+      # (.dmg, .deb, .AppImage, .msi, .exe) regardless of subdirectory.
+      - uses: tauri-apps/tauri-action@v4
+        id: tauri_build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: src-tauri
+
+      # ── Artifact Upload ──────────────────────────────────────────────
+      # Always runs (tag push + manual dispatch).
+      # Manual dispatch users download from the workflow run summary page.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: knox-bundle-${{ matrix.bundle-ext }}
+          path: src-tauri/target/release/bundle/**
+          if-no-files-found: error
+
+  # ── GitHub Release ──────────────────────────────────────────────────────
+  # Aggregates all platform bundles into a SINGLE release.
+  # Only runs on tag push — not on manual dispatch.
+  release:
+    needs: [setup, build]
+    if: success() && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: knox-bundle-*
+          path: bundles
+          merge-multiple: true
+
+      - name: List bundles
+        run: |
+          echo "=== Bundle artifacts for release ==="
+          find bundles -type f -ls
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ needs.setup.outputs.version }}
+          tag_name: v${{ needs.setup.outputs.version }}
+          files: bundles/**
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

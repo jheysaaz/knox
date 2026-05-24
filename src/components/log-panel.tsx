@@ -7,10 +7,12 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { type LogEntry } from "@/types";
 
+/** Displays session activity logs with save-to-file support. */
 interface LogPanelProps {
   logs: LogEntry[];
 }
 
+/** Renders session log entries with auto-scroll and save-to-file capability. */
 export function LogPanel({ logs }: LogPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 

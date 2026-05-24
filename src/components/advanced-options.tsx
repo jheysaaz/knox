@@ -27,11 +27,10 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 
-const CORES = navigator.hardwareConcurrency || 8;
-
 type ProfileKey = "balanced" | "max-compression" | "high-fidelity";
 type TabKey = ProfileKey | "custom";
 
+/** Values for all advanced OCR settings configurable through the UI. */
 export interface ProfileValues {
   cpuCores: number;
   memoryPages: number;
@@ -92,6 +91,7 @@ const PROFILES: Record<ProfileKey, (cores: number) => ProfileValues> = {
   }),
 };
 
+/** Small tooltip icon that shows a help text on hover. */
 function InfoTip({ children }: { children: React.ReactNode }) {
   return (
     <Tooltip>
@@ -110,6 +110,7 @@ function InfoTip({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Rendering of all advanced settings grouped by category. */
 function SettingsPanel({
   values,
   onChange,
@@ -454,6 +455,8 @@ function SettingsPanel({
   );
 }
 
+/** Profile selector (Balanced / Max Compression / High Fidelity / Custom) with access
+ * to the full settings panel when in Custom mode. */
 export function AdvancedOptions({
   value,
   onChange,
@@ -462,10 +465,11 @@ export function AdvancedOptions({
   onChange: (next: ProfileValues) => void;
 }) {
   const [customOverride, setCustomOverride] = useState(false);
+  const cores = useMemo(() => navigator.hardwareConcurrency || 8, []);
 
   const getProfile = useCallback(
-    (key: ProfileKey): ProfileValues => PROFILES[key](CORES),
-    [],
+    (key: ProfileKey): ProfileValues => PROFILES[key](cores),
+    [cores],
   );
 
   const activeTab = useMemo<TabKey>(() => {
