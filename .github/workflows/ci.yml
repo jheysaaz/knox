@@ -104,7 +104,7 @@ jobs:
 
       - name: sccache (Windows)
         if: matrix.os == 'windows-latest'
-        uses: mozilla-actions/sccache-action@v1
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       # ── Frontend ─────────────────────────────────────────────────────────
       - run: pnpm install --frozen-lockfile
