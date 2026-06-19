@@ -299,7 +299,13 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
                             format!("page {page_number}: no image found after text filter"),
                         )),
                     };
-                    let processed = preprocess(&base_image, settings, false)?;
+                    let max_dim = base_image.width().max(base_image.height());
+                    let use_fast = max_dim > 2000
+                        || base_image.pixels().map(|p| p.0[0] as u64).sum::<u64>()
+                            / base_image.width().max(1) as u64
+                            / base_image.height().max(1) as u64
+                            > 200;
+                    let processed = preprocess(&base_image, settings, use_fast)?;
                     Ok(PagePrep {
                         page_number,
                         base_image,
