@@ -108,12 +108,12 @@ describe('useQueue', () => {
   });
 
   it('pipeline-progress event updates file status and progress', async () => {
-    const addLog = vi.fn();
-    const { result } = renderHook(() => useQueue(addLog));
-
     vi.mocked(invoke)
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        encrypted: false,
+        fileId: '/test.pdf',
+      })
       .mockResolvedValueOnce({
         downloaded: [],
         skipped: ['eng'],
@@ -124,6 +124,8 @@ describe('useQueue', () => {
         isRunning: false,
       })
       .mockResolvedValue([]);
+    const addLog = vi.fn();
+    const { result } = renderHook(() => useQueue(addLog));
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -160,11 +162,12 @@ describe('useQueue', () => {
   });
 
   it('pipeline-progress with failed status sets error', async () => {
-    const addLog = vi.fn();
-    const { result } = renderHook(() => useQueue(addLog));
-
     vi.mocked(invoke)
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        encrypted: false,
+        fileId: '/test.pdf',
+      })
       .mockResolvedValueOnce({
         downloaded: [],
         skipped: ['eng'],
@@ -175,6 +178,8 @@ describe('useQueue', () => {
         isRunning: false,
       })
       .mockResolvedValue([]);
+    const addLog = vi.fn();
+    const { result } = renderHook(() => useQueue(addLog));
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -212,11 +217,12 @@ describe('useQueue', () => {
   });
 
   it('jobFinished event updates file status to complete', async () => {
-    const addLog = vi.fn();
-    const { result } = renderHook(() => useQueue(addLog));
-
     vi.mocked(invoke)
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        encrypted: false,
+        fileId: '/test.pdf',
+      })
       .mockResolvedValueOnce({
         downloaded: [],
         skipped: ['eng'],
@@ -227,6 +233,8 @@ describe('useQueue', () => {
         isRunning: false,
       })
       .mockResolvedValue([]);
+    const addLog = vi.fn();
+    const { result } = renderHook(() => useQueue(addLog));
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -264,11 +272,12 @@ describe('useQueue', () => {
   });
 
   it('jobFinished with failed status sets error', async () => {
-    const addLog = vi.fn();
-    const { result } = renderHook(() => useQueue(addLog));
-
     vi.mocked(invoke)
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        encrypted: false,
+        fileId: '/test.pdf',
+      })
       .mockResolvedValueOnce({
         downloaded: [],
         skipped: ['eng'],
@@ -279,6 +288,8 @@ describe('useQueue', () => {
         isRunning: false,
       })
       .mockResolvedValue([]);
+    const addLog = vi.fn();
+    const { result } = renderHook(() => useQueue(addLog));
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -368,6 +379,11 @@ describe('useQueue', () => {
   it('queueState event marks isRunning as true', async () => {
     const addLog = vi.fn();
     vi.mocked(invoke)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        encrypted: false,
+        fileId: '/test.pdf',
+      })
       .mockResolvedValueOnce({ downloaded: [], skipped: ['eng'], errors: {} })
       .mockResolvedValueOnce({
         jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
@@ -445,6 +461,11 @@ describe('useQueue', () => {
   it('queueState event removes stale queued files not in backend', async () => {
     const addLog = vi.fn();
     vi.mocked(invoke)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        encrypted: false,
+        fileId: '/test.pdf',
+      })
       .mockResolvedValueOnce({ downloaded: [], skipped: ['eng'], errors: {} })
       .mockResolvedValueOnce({
         jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
@@ -483,6 +504,11 @@ describe('useQueue', () => {
   it('queueState event keeps non-queued files when backend is empty', async () => {
     const addLog = vi.fn();
     vi.mocked(invoke)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        encrypted: false,
+        fileId: '/test.pdf',
+      })
       .mockResolvedValueOnce({ downloaded: [], skipped: ['eng'], errors: {} })
       .mockResolvedValueOnce({
         jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
@@ -509,8 +535,8 @@ describe('useQueue', () => {
       await result.current.handleStart(defaultSettings);
     });
 
-    act(() => {
-      result.current.handleFilesAdded([
+    await act(async () => {
+      await result.current.handleFilesAdded([
         {
           id: '2',
           path: '/draft.pdf',
