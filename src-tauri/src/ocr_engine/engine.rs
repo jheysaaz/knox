@@ -11,10 +11,10 @@ use tokio::sync::mpsc;
 use crate::ocr_engine::error::PipelineError;
 use crate::ocr_engine::image::preprocess;
 use crate::ocr_engine::ingest::{IngestItem, enqueue_files};
-use crate::ocr_engine::ocr::TessApi;
-use crate::ocr_engine::ocr::WordBounds;
+#[cfg(feature = "ocr")]
+use crate::ocr_engine::pdf::add_text_layers;
 use crate::ocr_engine::pdf::{
-    add_text_layers, encode_ccitt_g4, encode_flate, extract_lopdf_page, finalize, load_document,
+    encode_ccitt_g4, encode_flate, extract_lopdf_page, finalize, load_document,
     replace_page_images, get_page_media_box,
 };
 use crate::ocr_engine::progress::ProgressTracker;
@@ -24,7 +24,13 @@ use crate::ocr_engine::types::{
     CompressionMode, ExistingTextMode, OcrSettings, PipelineStatus, ProcessingConfig,
 };
 
+#[cfg(feature = "ocr")]
+use crate::ocr_engine::ocr::TessApi;
+
+#[cfg(feature = "ocr")]
 pub type SharedTessPool = std::sync::Arc<std::sync::Mutex<Option<TessApi>>>;
+#[cfg(not(feature = "ocr"))]
+pub type SharedTessPool = std::sync::Arc<std::sync::Mutex<()>>;
 
 /// Maximum pixel dimension on any side. Pages exceeding this are rendered at
 /// a lower adaptive DPI so the resulting image fits within this cap, avoiding
@@ -36,6 +42,7 @@ const MAX_IMAGE_DIM: u32 = 6000;
 #[derive(Clone)]
 pub struct Engine {
     runtime: std::sync::Arc<RuntimeResources>,
+    #[cfg(feature = "ocr")]
     tess_pool: SharedTessPool,
     pdfium: std::sync::Arc<PdfiumEngine>,
 }
@@ -47,11 +54,12 @@ impl Engine {
     /// shared across all jobs, avoiding repeated thread pool construction.
     pub fn new(
         runtime: std::sync::Arc<RuntimeResources>,
-        tess_pool: SharedTessPool,
+        #[cfg(feature = "ocr")] tess_pool: SharedTessPool,
         pdfium: std::sync::Arc<PdfiumEngine>,
     ) -> Self {
         Self {
             runtime,
+            #[cfg(feature = "ocr")]
             tess_pool,
             pdfium,
         }
@@ -68,6 +76,7 @@ impl Engine {
         channel_capacity: usize,
         cancelled: Arc<AtomicBool>,
     ) -> Result<(), PipelineError> {
+        #[cfg(feature = "ocr")]
         let tess_pool = self.tess_pool.clone();
         let count = items.len();
         tracing::info!(target: "knox::engine", count, "processing batch");
@@ -107,6 +116,7 @@ impl Engine {
                 settings,
                 item,
                 cancelled: cancelled.clone(),
+                #[cfg(feature = "ocr")]
                 tess_pool: tess_pool.clone(),
                 pdfium,
             })
@@ -202,11 +212,13 @@ struct ProcessFileArgs {
     settings: OcrSettings,
     item: IngestItem,
     cancelled: Arc<AtomicBool>,
+    #[cfg(feature = "ocr")]
     tess_pool: SharedTessPool,
     pdfium: Arc<PdfiumEngine>,
 }
 
 /// Intermediate result from the parallel render+preprocess phase.
+#[allow(dead_code)]
 struct PagePrep {
     page_number: u32,
     base_image: GrayImage,
@@ -215,7 +227,9 @@ struct PagePrep {
 }
 
 async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError> {
-    let ProcessFileArgs { pool, app, tracker, config, settings, item, cancelled, tess_pool, pdfium } = args;
+    let ProcessFileArgs { pool, app, tracker, config: _config, settings, item, cancelled, pdfium, #[cfg(feature = "ocr")] tess_pool } = args;
+    #[cfg(feature = "ocr")]
+    let config = _config;
     let input_path = &item.path;
     let job_id = item.job_id.clone();
     let output_path = item.output_path.clone();
@@ -306,79 +320,110 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
         return Err(PipelineError::Cancelled);
     }
 
-    // --- Phase 3: Sequential OCR (TessApi is shared) ---
-    let tess = {
-        let mut pool_guard = tess_pool
-            .lock()
-            .map_err(|e| PipelineError::Channel(format!("tess pool lock poisoned: {e}")))?;
-        match pool_guard.take() {
-            Some(tess) => {
-                tess.clear()?;
-                tracing::debug!(target: "knox::engine", job_id, "reusing warm TessApi from pool");
-                tess
-            }
-            None => {
-                tracing::debug!(target: "knox::engine", job_id, "creating fresh TessApi");
-                TessApi::new(&config.tessdata_path, &config.languages)?
-            }
-        }
-    };
-    tess.set_page_seg_mode(settings.psm.into())?;
-
-    let mut text_layers: BTreeMap<u32, (Vec<WordBounds>, u32, u32)> = BTreeMap::new();
+    #[cfg(feature = "ocr")]
+    let mut text_layers: BTreeMap<u32, (Vec<crate::ocr_engine::ocr::WordBounds>, u32, u32)> = BTreeMap::new();
     let mut replacements: BTreeMap<u32, lopdf::Stream> = BTreeMap::new();
 
-    let ocr_start = Instant::now();
-    for prep in &prep_results {
+    #[cfg(feature = "ocr")]
+    {
+        // --- Phase 3: Sequential OCR (TessApi is shared) ---
+        use crate::ocr_engine::ocr::TessApi;
+
+        let tess = {
+            let mut pool_guard = tess_pool
+                .lock()
+                .map_err(|e| PipelineError::Channel(format!("tess pool lock poisoned: {e}")))?;
+            match pool_guard.take() {
+                Some(tess) => {
+                    tess.clear()?;
+                    tracing::debug!(target: "knox::engine", job_id, "reusing warm TessApi from pool");
+                    tess
+                }
+                None => {
+                    tracing::debug!(target: "knox::engine", job_id, "creating fresh TessApi");
+                    TessApi::new(&config.tessdata_path, &config.languages)?
+                }
+            }
+        };
+        tess.set_page_seg_mode(settings.psm.into())?;
+
+        let ocr_start = Instant::now();
+        for prep in &prep_results {
+            if cancelled.load(Ordering::SeqCst) {
+                return Err(PipelineError::Cancelled);
+            }
+            tracker.emit(
+                &app,
+                job_id.clone(),
+                PipelineStatus::Ocr,
+                prep.page_number,
+                total_pages,
+                None,
+            );
+
+            let ocr_image = &prep.base_image;
+            tess.set_image_bytes(
+                ocr_image.as_raw(),
+                ocr_image.width() as i32,
+                ocr_image.height() as i32,
+                1,
+                ocr_image.width() as i32,
+            )?;
+            tess.set_source_resolution(prep.effective_dpi as u32)?;
+            let _ = tess.get_text()?;
+            let min_confidence = 30.0;
+            let words = tess.get_words()?.into_iter().filter(|w| w.confidence >= min_confidence).collect::<Vec<_>>();
+            let (img_w, img_h) = (ocr_image.width(), ocr_image.height());
+            text_layers.insert(prep.page_number, (words, img_w, img_h));
+
+            if do_replacement {
+                let processed = &prep.processed;
+                let replace_image = &processed.ocr_image;
+                let stream = if let Some(ref bitonal) = processed.bitonal {
+                    encode_ccitt_g4(bitonal.width, bitonal.height, bitonal.data.clone())?
+                } else {
+                    encode_flate(replace_image.width(), replace_image.height(), replace_image.to_vec())?
+                };
+                replacements.insert(prep.page_number, stream);
+            }
+
+            let page_elapsed = ocr_start.elapsed().as_millis() as u64;
+            tracker.record_page_time(page_elapsed);
+        }
+        let ocr_elapsed = ocr_start.elapsed().as_millis();
+        tracing::info!(target: "knox::engine", job_id, ocr_elapsed, "sequential OCR done");
+
         if cancelled.load(Ordering::SeqCst) {
             return Err(PipelineError::Cancelled);
         }
-        tracker.emit(
-            &app,
-            job_id.clone(),
-            PipelineStatus::Ocr,
-            prep.page_number,
-            total_pages,
-            None,
-        );
 
-        // OCR on base_image so pixel coordinates match the original PDF content exactly.
-        // Preprocessing (denoise, binarization, morphology) shifts edges and would
-        // misalign the text layer. Keep preprocessing for image replacement only.
-        let ocr_image = &prep.base_image;
-        tess.set_image_bytes(
-            ocr_image.as_raw(),
-            ocr_image.width() as i32,
-            ocr_image.height() as i32,
-            1,
-            ocr_image.width() as i32,
-        )?;
-        tess.set_source_resolution(prep.effective_dpi as u32)?;
-        let _ = tess.get_text()?;
-        // Filter out low-confidence words (noise between paragraphs).
-        // Tesseract confidence 0-100; threshold 30 removes spurious detections
-        // while keeping real text which typically scores 60+.
-        let min_confidence = 30.0;
-        let words = tess.get_words()?.into_iter().filter(|w| w.confidence >= min_confidence).collect::<Vec<_>>();
-        let (img_w, img_h) = (ocr_image.width(), ocr_image.height());
-        text_layers.insert(prep.page_number, (words, img_w, img_h));
-
-        if do_replacement {
-            let processed = &prep.processed;
-            let replace_image = &processed.ocr_image;
-            let stream = if let Some(ref bitonal) = processed.bitonal {
-                encode_ccitt_g4(bitonal.width, bitonal.height, bitonal.data.clone())?
-            } else {
-                encode_flate(replace_image.width(), replace_image.height(), replace_image.to_vec())?
-            };
-            replacements.insert(prep.page_number, stream);
+        // --- Phase 5: Return TessApi to pool ---
+        {
+            let mut pool_guard = tess_pool
+                .lock()
+                .map_err(|e| PipelineError::Channel(format!("tess pool lock poisoned: {e}")))?;
+            if pool_guard.is_none() {
+                *pool_guard = Some(tess);
+            }
         }
-
-        let page_elapsed = ocr_start.elapsed().as_millis() as u64;
-        tracker.record_page_time(page_elapsed);
     }
-    let ocr_elapsed = ocr_start.elapsed().as_millis();
-    tracing::info!(target: "knox::engine", job_id, ocr_elapsed, "sequential OCR done");
+
+    #[cfg(not(feature = "ocr"))]
+    {
+        // Without OCR feature: only do image replacement, no text layers
+        for prep in &prep_results {
+            if do_replacement {
+                let processed = &prep.processed;
+                let replace_image = &processed.ocr_image;
+                let stream = if let Some(ref bitonal) = processed.bitonal {
+                    encode_ccitt_g4(bitonal.width, bitonal.height, bitonal.data.clone())?
+                } else {
+                    encode_flate(replace_image.width(), replace_image.height(), replace_image.to_vec())?
+                };
+                replacements.insert(prep.page_number, stream);
+            }
+        }
+    }
 
     if cancelled.load(Ordering::SeqCst) {
         return Err(PipelineError::Cancelled);
@@ -391,6 +436,7 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
         tracing::debug!(target: "knox::engine", job_id, "image replacement done");
     }
 
+    #[cfg(feature = "ocr")]
     if !text_layers.is_empty() {
         tracing::debug!(target: "knox::engine", job_id, "adding text layers");
         for (page_number, (words, w, h)) in &text_layers {
@@ -399,16 +445,6 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
             add_text_layers(&mut document, per_page, *w, *h, settings.resolution_dpi)?;
         }
         tracing::debug!(target: "knox::engine", job_id, "text layers added");
-    }
-
-    // --- Phase 5: Return TessApi to pool ---
-    {
-        let mut pool_guard = tess_pool
-            .lock()
-            .map_err(|e| PipelineError::Channel(format!("tess pool lock poisoned: {e}")))?;
-        if pool_guard.is_none() {
-            *pool_guard = Some(tess);
-        }
     }
 
     // --- Phase 6: Save ---

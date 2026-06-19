@@ -17,6 +17,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+default = ["ocr"]
+ocr = ["tesseract-sys", "leptonica-sys"]
+
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
@@ -34,12 +38,13 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 thiserror = "1"
-tesseract-sys = "0.6"
-leptonica-sys = "0.4"
+tesseract-sys = { version = "0.6", optional = true }
+leptonica-sys = { version = "0.4", optional = true }
 flate2 = "1"
 futures = "0.3"
 pdfluent-jbig2 = "0.2.2"
 pdfluent-ccitt = "0.2"
+fax = "0.2"
 reqwest = { version = "0.12", features = ["blocking", "rustls-tls"], default-features = false }
 pdfium-render = "0.8"
 

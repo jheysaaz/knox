@@ -20,12 +20,17 @@ export default function App() {
     showActivity,
     setShowActivity,
     isRunning,
+    starting,
+    history,
+    showHistory,
     handleFilesAdded,
     handleFileRemove,
     handleFileReprocess,
     handleClearFiles,
     handleStart,
     handleStop,
+    handleClearHistory,
+    handleToggleHistory,
   } = useQueue(addLog);
   const [settings, setSettings] = useState<ProfileValues>({
     memoryPages: 30,
@@ -39,6 +44,7 @@ export default function App() {
     resolution: "300",
     archiveEnforcement: false,
     languages: ["eng", "spa"],
+    safeMode: false,
   });
 
   return (
@@ -51,6 +57,8 @@ export default function App() {
                 greeting={GREETING}
                 showActivity={showActivity}
                 onToggleActivity={() => setShowActivity((v) => !v)}
+                showHistory={showHistory}
+                onToggleHistory={handleToggleHistory}
               />
               <Suspense fallback={<Spinner />}>
                 <LeftPanel
@@ -60,6 +68,7 @@ export default function App() {
                   settings={settings}
                   onSettingsChange={setSettings}
                   isRunning={isRunning}
+                  starting={starting}
                   onStart={handleStart}
                 />
               </Suspense>
@@ -76,7 +85,10 @@ export default function App() {
                 isRunning={isRunning}
                 onStop={handleStop}
                 showActivity={showActivity}
+                showHistory={showHistory}
                 logs={logs}
+                history={history}
+                onClearHistory={handleClearHistory}
               />
             </Suspense>
           </div>

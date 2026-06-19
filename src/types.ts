@@ -42,3 +42,14 @@ export interface LogEntry {
   level: "info" | "warn" | "error";
   message: string;
 }
+
+/** A completed job entry in the processing history. */
+export interface HistoryEntry {
+  id: string;
+  inputPath: string;
+  outputPath: string;
+  status: "completed" | "failed" | "cancelled";
+  startedAt: number;
+  finishedAt: number;
+  durationMs: number;
+}

@@ -157,6 +157,7 @@ impl From<&crate::OcrOptions> for OcrSettings {
     }
 }
 
+#[cfg(feature = "ocr")]
 impl From<PageSegMode> for tesseract_sys::PageSegMode {
     fn from(mode: PageSegMode) -> Self {
         match mode {

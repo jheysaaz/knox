@@ -5,6 +5,7 @@ import { Header } from "@/components/header";
 
 describe("Header", () => {
   const onToggleActivity = vi.fn();
+  const onToggleHistory = vi.fn();
 
   it("renders greeting", () => {
     render(
@@ -12,6 +13,8 @@ describe("Header", () => {
         greeting="Good morning"
         showActivity={true}
         onToggleActivity={onToggleActivity}
+        showHistory={false}
+        onToggleHistory={onToggleHistory}
       />,
     );
     expect(screen.getByText("Good morning")).toBeInTheDocument();
@@ -23,10 +26,13 @@ describe("Header", () => {
         greeting="Hello"
         showActivity={true}
         onToggleActivity={onToggleActivity}
+        showHistory={false}
+        onToggleHistory={onToggleHistory}
       />,
     );
     expect(screen.getByTitle("Toggle theme")).toBeInTheDocument();
     expect(screen.getByTitle("Hide activity")).toBeInTheDocument();
+    expect(screen.getByTitle("Show history")).toBeInTheDocument();
   });
 
   it("shows Show activity button when activity is hidden", () => {
@@ -35,6 +41,8 @@ describe("Header", () => {
         greeting="Hello"
         showActivity={false}
         onToggleActivity={onToggleActivity}
+        showHistory={false}
+        onToggleHistory={onToggleHistory}
       />,
     );
     expect(screen.getByTitle("Show activity")).toBeInTheDocument();
@@ -46,6 +54,8 @@ describe("Header", () => {
         greeting="Hello"
         showActivity={true}
         onToggleActivity={onToggleActivity}
+        showHistory={false}
+        onToggleHistory={onToggleHistory}
       />,
     );
     const user = userEvent.setup();
@@ -59,10 +69,42 @@ describe("Header", () => {
         greeting="Hello"
         showActivity={true}
         onToggleActivity={onToggleActivity}
+        showHistory={false}
+        onToggleHistory={onToggleHistory}
       />,
     );
     const user = userEvent.setup();
     await user.click(screen.getByTitle("Hide activity"));
     expect(onToggleActivity).toHaveBeenCalledOnce();
   });
+
+  it("calls onToggleHistory when history button clicked", async () => {
+    render(
+      <Header
+        greeting="Hello"
+        showActivity={true}
+        onToggleActivity={onToggleActivity}
+        showHistory={false}
+        onToggleHistory={onToggleHistory}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTitle("Show history"));
+    expect(onToggleHistory).toHaveBeenCalledOnce();
+  });
+
+  it("shows Hide history button when history is shown", () => {
+    render(
+      <Header
+        greeting="Hello"
+        showActivity={true}
+        onToggleActivity={onToggleActivity}
+        showHistory={true}
+        onToggleHistory={onToggleHistory}
+      />,
+    );
+    expect(screen.getByTitle("Hide history")).toBeInTheDocument();
+  });
+
+
 });

@@ -17,6 +17,7 @@ const defaultValues: ProfileValues = {
   resolution: "300",
   archiveEnforcement: false,
   languages: ["eng"],
+  safeMode: false,
 };
 
 const renderWithTooltip = (ui: React.ReactElement) =>

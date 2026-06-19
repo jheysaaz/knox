@@ -81,6 +81,7 @@ pub struct LanguagePackResult {
     pub errors: HashMap<String, String>,
 }
 
+#[cfg(feature = "ocr")]
 #[tauri::command]
 pub fn ensure_language_packs(
     app: AppHandle,
@@ -186,6 +187,20 @@ pub fn ensure_language_packs(
     }
 
     Ok(result)
+}
+
+#[cfg(not(feature = "ocr"))]
+#[tauri::command]
+pub fn ensure_language_packs(
+    _app: AppHandle,
+    _languages: Vec<String>,
+) -> Result<LanguagePackResult, CommandError> {
+    tracing::warn!(target: "knox::languages", "OCR feature not enabled — language packs unavailable");
+    Ok(LanguagePackResult {
+        downloaded: vec![],
+        skipped: vec![],
+        errors: HashMap::new(),
+    })
 }
 
 fn validate_input_path(path: &str) -> Result<(), CommandError> {
@@ -562,6 +577,7 @@ pub fn start_queue(
                     let runtime = global_runtime().clone();
                     let engine = crate::ocr_engine::engine::Engine::new(
                         runtime,
+                        #[cfg(feature = "ocr")]
                         app.state::<crate::ocr_engine::engine::SharedTessPool>()
                             .inner()
                             .clone(),

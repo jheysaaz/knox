@@ -6,6 +6,7 @@ use image::GrayImage;
 use lopdf::{Dictionary, Document, Object, Stream};
 
 use crate::ocr_engine::error::PipelineError;
+#[cfg(feature = "ocr")]
 use crate::ocr_engine::ocr::WordBounds;
 use crate::ocr_engine::types::ExistingTextMode;
 
@@ -322,6 +323,7 @@ pub fn replace_page_images(
 /// incorrect when the image was downscaled.
 /// Helvetica glyph advance widths in emu (1 em = 1000 units).
 /// Source: Adobe Helvetica AFM. Space = 278.
+#[cfg(feature = "ocr")]
 fn helvetica_char_width(b: u8) -> u16 {
     match b {
         b' ' => 278,
@@ -371,6 +373,7 @@ fn helvetica_char_width(b: u8) -> u16 {
     }
 }
 
+#[cfg(feature = "ocr")]
 fn helvetica_word_width_emu(word: &str) -> u64 {
     word.as_bytes()
         .iter()
@@ -378,6 +381,7 @@ fn helvetica_word_width_emu(word: &str) -> u64 {
         .sum()
 }
 
+#[cfg(feature = "ocr")]
 pub fn add_text_layers(
     doc: &mut Document,
     words_per_page: BTreeMap<u32, Vec<WordBounds>>,
@@ -473,6 +477,7 @@ pub(crate) fn get_page_media_box(
 /// Ensures the page's Resources dict has a `/Helvetica` font entry.
 /// Creates the Resources/Font dicts if they don't exist.
 /// Works with owned objects to avoid borrow checker conflicts.
+#[cfg(feature = "ocr")]
 fn ensure_font_helvetica(
     doc: &mut Document,
     page_id: lopdf::ObjectId,
@@ -578,6 +583,7 @@ fn ensure_font_helvetica(
 }
 
 /// Escapes special characters in a PDF string literal (parentheses, backslash).
+#[cfg(feature = "ocr")]
 fn escape_pdf_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -592,6 +598,7 @@ fn escape_pdf_string(s: &str) -> String {
 }
 
 /// Formats a float without trailing zeros for compact PDF output.
+#[cfg(feature = "ocr")]
 fn format_pdf_float(v: f32) -> String {
     if v.fract() == 0.0 {
         format!("{:.0}", v)
@@ -620,22 +627,49 @@ fn resolve_dict<'a>(
     Ok(None)
 }
 
-/// Encodes a 1-bit bitonal image as a compressed PDF image stream.
+/// Encodes a 1-bit bitonal image as a CCITT Group 4 compressed PDF image stream.
 ///
-/// Uses `FlateDecode` with `BitsPerComponent=1` — this is correct and portable,
-/// whereas `CCITTFaxDecode` is avoided because `pdfluent-ccitt` does not provide
-/// an encoder. The `Ccitt` variant in `CompressionMode` selects this path; future
-/// work may add real CCITT Group 4 encoding for better compression of text pages.
-#[allow(dead_code)]
+/// Uses the `fax` crate to produce real CCITT T.6 / Group 4 encoding (fax standard).
+/// This achieves significantly better compression on text pages than FlateDecode.
+/// The output stream uses `/Filter /CCITTFaxDecode` with `/K 0` (pure 2D Group 4).
+///
+/// Our bitonal buffer uses 1 = black, so `BlackIs1 true` is set in DecodeParms.
 pub fn encode_ccitt_g4(width: u32, height: u32, bitonal: Vec<u8>) -> Result<Stream, PipelineError> {
-    use std::io::Write;
-    let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
-    encoder
-        .write_all(&bitonal)
-        .map_err(|e| PipelineError::PdfParse(format!("flate compress: {e}")))?;
-    let compressed = encoder
+    use fax::encoder::Encoder;
+    use fax::Color;
+    use fax::VecWriter;
+
+    let actual_width = u16::try_from(width)
+        .map_err(|_| PipelineError::PdfParse(format!("CCITT width {width} exceeds u16")))?;
+    let actual_height = u16::try_from(height)
+        .map_err(|_| PipelineError::PdfParse(format!("CCITT height {height} exceeds u16")))?;
+
+    let row_bytes = ((actual_width as u16 + 7) / 8) as usize;
+    let writer = VecWriter::new();
+    let mut encoder = Encoder::new(writer);
+
+    for row in 0..actual_height as usize {
+        let start = row * row_bytes;
+        let end = start.saturating_add(row_bytes).min(bitonal.len());
+        let row_data = &bitonal[start..end];
+
+        let pels = (0..actual_width as u16).map(|col| {
+            let byte_idx = (col / 8) as usize;
+            let bit_idx = 7 - (col % 8);
+            let bit = row_data.get(byte_idx).copied().unwrap_or(0);
+            let pixel = (bit >> bit_idx) & 1;
+            if pixel == 1 { Color::Black } else { Color::White }
+        });
+
+        encoder
+            .encode_line(pels, actual_width)
+            .map_err(|e| PipelineError::PdfParse(format!("CCITT G4 encode line: {e}")))?;
+    }
+
+    let writer = encoder
         .finish()
-        .map_err(|e| PipelineError::PdfParse(format!("flate finish: {e}")))?;
+        .map_err(|e| PipelineError::PdfParse(format!("CCITT G4 finish: {e}")))?;
+    let encoded = writer.finish();
 
     let mut dict = Dictionary::new();
     dict.set("Type", "XObject");
@@ -644,11 +678,16 @@ pub fn encode_ccitt_g4(width: u32, height: u32, bitonal: Vec<u8>) -> Result<Stre
     dict.set("Height", height as i64);
     dict.set("ColorSpace", "DeviceGray");
     dict.set("BitsPerComponent", 1);
-    dict.set("Filter", "FlateDecode");
-    // Our bitonal buffer uses 1 = black. Default Decode maps 1 = white, so invert.
-    dict.set("Decode", vec![Object::Integer(1), Object::Integer(0)]);
+    dict.set("Filter", "CCITTFaxDecode");
 
-    Ok(Stream::new(dict, compressed))
+    let mut dparms = Dictionary::new();
+    dparms.set("K", 0);
+    dparms.set("Columns", width as i64);
+    dparms.set("Rows", height as i64);
+    dparms.set("BlackIs1", true);
+    dict.set("DecodeParms", dparms);
+
+    Ok(Stream::new(dict, encoded))
 }
 
 /// Encodes an 8-bit grayscale image as a FlateDecode-compressed PDF image stream.
@@ -980,15 +1019,27 @@ mod tests {
             get_ok(dict, b"BitsPerComponent"),
             Object::Integer(1)
         ));
-        assert!(matches!(get_ok(dict, b"Filter"), Object::Name(n) if n == b"FlateDecode"));
-        let decode = dict.get(b"Decode").unwrap();
-        if let Object::Array(arr) = decode {
+        assert!(matches!(get_ok(dict, b"Filter"), Object::Name(n) if n == b"CCITTFaxDecode"));
+        let dparms = dict.get(b"DecodeParms").unwrap();
+        if let Object::Dictionary(d) = dparms {
             assert!(matches!(
-                arr.as_slice(),
-                [Object::Integer(1), Object::Integer(0)]
+                d.get(b"K").unwrap(),
+                Object::Integer(0)
+            ));
+            assert!(matches!(
+                d.get(b"Columns").unwrap(),
+                Object::Integer(16)
+            ));
+            assert!(matches!(
+                d.get(b"Rows").unwrap(),
+                Object::Integer(16)
+            ));
+            assert!(matches!(
+                d.get(b"BlackIs1").unwrap(),
+                Object::Boolean(true)
             ));
         } else {
-            panic!("Decode should be an array");
+            panic!("DecodeParms should be a dictionary");
         }
     }
 

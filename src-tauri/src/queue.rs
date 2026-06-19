@@ -34,8 +34,9 @@ pub fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
+/// Default concurrency: half physical cores, clamped 1..=4.
+/// Leaves headroom for OS + OCR thread pool.
 pub fn default_concurrency() -> usize {
     let cores = num_cpus::get_physical().max(1);
-    let half = (cores / 2).max(1);
-    std::cmp::min(2, half)
+    (cores / 2).clamp(1, 4)
 }

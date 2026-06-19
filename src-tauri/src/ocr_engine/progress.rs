@@ -38,6 +38,7 @@ impl ProgressTracker {
     }
 
     /// Records the time (ms) spent processing one page and increments the page counter.
+    #[cfg(feature = "ocr")]
     pub fn record_page_time(&self, ms: u64) {
         self.totals
             .total_pages_processed
@@ -112,6 +113,7 @@ mod tests {
         assert_eq!(t.totals.total_page_time_ms.load(Ordering::Relaxed), 0);
     }
 
+    #[cfg(feature = "ocr")]
     #[test]
     fn record_page_time_increments_counters() {
         let t = ProgressTracker::new(1);

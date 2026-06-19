@@ -43,6 +43,7 @@ export interface ProfileValues {
   resolution: string;
   archiveEnforcement: boolean;
   languages: string[];
+  safeMode: boolean;
 }
 
 const PROFILES: Record<ProfileKey, ProfileValues> = {
@@ -58,6 +59,7 @@ const PROFILES: Record<ProfileKey, ProfileValues> = {
     resolution: "300",
     archiveEnforcement: false,
     languages: ["eng", "spa"],
+    safeMode: false,
   },
   "max-compression": {
     memoryPages: 15,
@@ -71,6 +73,7 @@ const PROFILES: Record<ProfileKey, ProfileValues> = {
     resolution: "150",
     archiveEnforcement: false,
     languages: ["eng", "spa"],
+    safeMode: false,
   },
   "high-fidelity": {
     memoryPages: 50,
@@ -84,6 +87,7 @@ const PROFILES: Record<ProfileKey, ProfileValues> = {
     resolution: "600",
     archiveEnforcement: true,
     languages: ["eng", "spa"],
+    safeMode: false,
   },
 };
 
@@ -144,6 +148,24 @@ function SettingsPanel({
             step={5}
             value={[values.memoryPages]}
             onValueChange={([v]) => onChange({ memoryPages: v })}
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-sm font-medium whitespace-nowrap">
+              Safe Mode (1 file at a time)
+            </span>
+            <InfoTip>
+              Forces the engine to process only one file at a time,
+              reducing memory pressure on low-spec machines. Useful when
+              processing very large PDFs or running on machines with
+              limited RAM.
+            </InfoTip>
+          </div>
+          <Switch
+            checked={values.safeMode}
+            onCheckedChange={(v) => onChange({ safeMode: v })}
           />
         </div>
       </div>

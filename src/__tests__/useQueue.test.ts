@@ -37,6 +37,7 @@ const defaultSettings = {
   resolution: "300",
   archiveEnforcement: false,
   languages: ["eng"],
+  safeMode: false,
 };
 
 describe("useQueue", () => {
@@ -50,7 +51,8 @@ describe("useQueue", () => {
       .mockResolvedValueOnce({
         jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
         isRunning: false,
-      });
+      })
+      .mockResolvedValue([]);
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
 
@@ -84,7 +86,7 @@ describe("useQueue", () => {
         }),
       }),
     );
-    expect(invoke).toHaveBeenNthCalledWith(3, "start_queue");
+    expect(invoke).toHaveBeenNthCalledWith(4, "start_queue");
     expect(addLog).toHaveBeenCalledWith("info", "Processing 1 file(s)...");
   });
 
@@ -113,7 +115,8 @@ describe("useQueue", () => {
       .mockResolvedValueOnce({
         jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
         isRunning: false,
-      });
+      })
+      .mockResolvedValue([]);
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -162,7 +165,8 @@ describe("useQueue", () => {
       .mockResolvedValueOnce({
         jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
         isRunning: false,
-      });
+      })
+      .mockResolvedValue([]);
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -212,7 +216,8 @@ describe("useQueue", () => {
       .mockResolvedValueOnce({
         jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
         isRunning: false,
-      });
+      })
+      .mockResolvedValue([]);
     act(() => {
       result.current.handleFilesAdded([
         {
@@ -262,7 +267,8 @@ describe("useQueue", () => {
       .mockResolvedValueOnce({
         jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
         isRunning: false,
-      });
+      })
+      .mockResolvedValue([]);
     act(() => {
       result.current.handleFilesAdded([
         {

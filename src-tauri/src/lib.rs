@@ -201,6 +201,7 @@ fn pdfium_lib_name() -> &'static str {
     }
 }
 
+#[cfg(feature = "ocr")]
 fn seed_tess_pool(pool: ocr_engine::engine::SharedTessPool) {
     let tessdata_path = resolve_tessdata_path();
     let Some(path) = tessdata_path else {
@@ -255,12 +256,19 @@ pub fn run() {
                 }
             });
 
-            // Seed a pre-warmed TessApi into the shared pool (background thread).
-            // The Rayon pool is created lazily on first use via crate::RUNTIME
-            let tess_pool: ocr_engine::engine::SharedTessPool =
-                Arc::new(Mutex::new(None));
-            seed_tess_pool(tess_pool.clone());
-            app.manage(tess_pool);
+            #[cfg(feature = "ocr")]
+            {
+                let tess_pool: ocr_engine::engine::SharedTessPool =
+                    Arc::new(Mutex::new(None));
+                seed_tess_pool(tess_pool.clone());
+                app.manage(tess_pool);
+            }
+            #[cfg(not(feature = "ocr"))]
+            {
+                let tess_pool: ocr_engine::engine::SharedTessPool =
+                    Arc::new(Mutex::new(()));
+                app.manage(tess_pool);
+            }
 
             // Create PdfiumEngine with runtime dylib loading.
             // If the dylib is not found, it falls back to lopdf extraction silently.

@@ -16,6 +16,7 @@ pub mod engine;
 pub mod error;
 pub mod image;
 pub mod ingest;
+#[cfg(feature = "ocr")]
 pub mod ocr;
 pub mod pdf;
 pub mod progress;

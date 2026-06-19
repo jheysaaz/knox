@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Sun, Moon, Settings, Bug } from "lucide-react";
+import { Sun, Moon, Settings, Bug, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /** Header component with greeting, theme toggle, and activity panel toggle. */
@@ -7,6 +7,8 @@ interface HeaderProps {
   greeting: string;
   showActivity: boolean;
   onToggleActivity: () => void;
+  showHistory: boolean;
+  onToggleHistory: () => void;
 }
 
 /** Top bar with greeting, theme toggle, activity toggle, and settings button. */
@@ -14,6 +16,8 @@ export function Header({
   greeting,
   showActivity,
   onToggleActivity,
+  showHistory,
+  onToggleHistory,
 }: HeaderProps) {
   const [isDark, setIsDark] = useState(() => {
     const stored = localStorage.getItem("theme");
@@ -44,6 +48,14 @@ export function Header({
           <h2 className="text-muted-foreground">{greeting}</h2>
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleHistory}
+            title={showHistory ? "Hide history" : "Show history"}
+          >
+            <History className="h-5 w-5" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"

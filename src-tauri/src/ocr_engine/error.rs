@@ -10,12 +10,14 @@ pub enum PipelineError {
     #[error("PDF parse error: {0}")]
     PdfParse(String),
     /// Error from the Tesseract FFI layer.
+    #[cfg(feature = "ocr")]
     #[error("OCR FFI error: {0}")]
     FfiOcr(String),
     /// Channel communication error in the pipeline.
     #[error("Channel error: {0}")]
     Channel(String),
     /// A panic was caught and recovered from inside an FFI call.
+    #[cfg(feature = "ocr")]
     #[error("Recovered panic: {0}")]
     PanicRecovered(String),
     /// Pipeline processing was cancelled by the user.

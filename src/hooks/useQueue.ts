@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
-import type { FileItem, LogEntry } from "@/types";
+import type { FileItem, LogEntry, HistoryEntry } from "@/types";
 import type { ProfileValues } from "@/components/advanced-options";
 
 interface QueueState {
@@ -49,7 +49,7 @@ const mapJobStatus = (status: Job["status"]): FileItem["status"] => {
 
 const mapSettingsToOptions = (values: ProfileValues) => ({
   outputType: values.archiveEnforcement ? "pdfa" : "pdf",
-  safeMode: false,
+  safeMode: values.safeMode,
   binarization: values.binarization,
   fixedThreshold: values.fixedThreshold,
   deskewMode: values.deskew,
@@ -73,6 +73,9 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
   const [files, setFiles] = useState<FileItem[]>([]);
   const [outputDir, setOutputDir] = useState("");
   const [showActivity, setShowActivity] = useState(true);
+  const [starting, setStarting] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   const isRunning = useMemo(
     () => files.some((f) => f.status === "processing"),
@@ -172,8 +175,18 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
           ),
         );
       }),
+      listen<HistoryEntry[]>("historyUpdated", (event) => {
+        setHistory(event.payload);
+      }),
     ]);
     cleanupFns.current = fns;
+
+    try {
+      const initial = await invoke<HistoryEntry[]>("get_history");
+      setHistory(initial);
+    } catch {
+      // history load is best-effort
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -258,6 +271,7 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
       toast.error("No output directory selected");
       return;
     }
+    setStarting(true);
     try {
       const options = mapSettingsToOptions(settings);
       const processing = mapSettingsToProcessing(settings);
@@ -318,6 +332,8 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
       const message = (err as { message?: string })?.message || String(err);
       toast.error(`Failed to start processing: ${message}`);
       addLog("error", `Start failed: ${message}`);
+    } finally {
+      setStarting(false);
     }
   };
 
@@ -331,6 +347,21 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleClearHistory = useCallback(async () => {
+    try {
+      await invoke("clear_history");
+      setHistory([]);
+      addLog("info", "History cleared");
+    } catch {
+      toast.error("Unable to clear history");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleToggleHistory = useCallback(() => {
+    setShowHistory((prev) => !prev);
+  }, []);
+
   return {
     files,
     outputDir,
@@ -338,11 +369,16 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
     showActivity,
     setShowActivity,
     isRunning,
+    starting,
+    history,
+    showHistory,
     handleFilesAdded,
     handleFileRemove,
     handleFileReprocess,
     handleClearFiles,
     handleStart,
     handleStop,
+    handleClearHistory,
+    handleToggleHistory,
   };
 }

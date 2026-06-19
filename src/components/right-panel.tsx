@@ -1,6 +1,7 @@
 import { QueueView } from "@/components/queue-view";
 import { LogPanel } from "@/components/log-panel";
-import type { FileItem, LogEntry } from "@/types";
+import { HistoryView } from "@/components/history-view";
+import type { FileItem, LogEntry, HistoryEntry } from "@/types";
 
 interface RightPanelProps {
   files: FileItem[];
@@ -10,7 +11,10 @@ interface RightPanelProps {
   isRunning: boolean;
   onStop: () => void;
   showActivity: boolean;
+  showHistory: boolean;
   logs: LogEntry[];
+  history: HistoryEntry[];
+  onClearHistory: () => void;
 }
 
 function RightPanel({
@@ -21,8 +25,19 @@ function RightPanel({
   isRunning,
   onStop,
   showActivity,
+  showHistory,
   logs,
+  history,
+  onClearHistory,
 }: RightPanelProps) {
+  if (showHistory) {
+    return (
+      <div className="flex-1 min-h-0">
+        <HistoryView entries={history} onClear={onClearHistory} />
+      </div>
+    );
+  }
+
   return (
     <>
       {showActivity ? (
