@@ -11,11 +11,6 @@ This project expects prebuilt static archives in `src-tauri/third_party/native/<
 brew install cmake ninja pkg-config autoconf automake libtool
 ```
 
-- Linux:
-```
-sudo apt-get install -y cmake ninja-build pkg-config autoconf automake libtool build-essential yasm
-```
-
 - Windows:
 ```
 choco install -y cmake ninja
@@ -50,7 +45,6 @@ For reusable artifacts, run the `ocr-libs` workflow which publishes per-target a
 2) It publishes:
    - `ocr-libs-aarch64-apple-darwin.tar.gz`
    - `ocr-libs-x86_64-pc-windows-msvc.zip`
-   - `ocr-libs-x86_64-unknown-linux-gnu.tar.gz`
 
 ## Output layout
 
@@ -87,4 +81,4 @@ bash scripts/download-ocr-libs.sh ocr-libs-v1 aarch64-apple-darwin
 
 - macOS Apple Silicon: `aarch64-apple-darwin`
 - Windows: `x86_64-pc-windows-msvc`
-- Linux: `x86_64-unknown-linux-gnu`
+

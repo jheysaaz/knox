@@ -11,11 +11,6 @@ on:
           Use 'draft' for an unreleased build (artifacts uploaded to workflow run only).
         required: true
         default: draft
-      build_linux:
-        description: "Build for Linux (.deb / .AppImage)"
-        required: false
-        default: true
-        type: boolean
       build_macos:
         description: "Build for macOS (.dmg)"
         required: false
@@ -69,15 +64,11 @@ jobs:
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             MATRIX='{"include":[
-              {"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","bundle-ext":"linux"},
               {"os":"macos-latest","target":"aarch64-apple-darwin","bundle-ext":"macos"},
               {"os":"windows-latest","target":"x86_64-pc-windows-msvc","bundle-ext":"windows"}
             ]}'
           else
             ENTRIES='[]'
-            if [[ "${{ inputs.build_linux }}" == "true" ]]; then
-              ENTRIES=$(echo "$ENTRIES" | jq -c '. + [{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","bundle-ext":"linux"}]')
-            fi
             if [[ "${{ inputs.build_macos }}" == "true" ]]; then
               ENTRIES=$(echo "$ENTRIES" | jq -c '. + [{"os":"macos-latest","target":"aarch64-apple-darwin","bundle-ext":"macos"}]')
             fi
@@ -105,26 +96,12 @@ jobs:
       - uses: actions/checkout@v4
 
       # ── Platform System Dependencies ──────────────────────────────────
-      # tesseract-sys & leptonica-sys use pkg-config on Unix, vcpkg on Windows.
+      # tesseract-sys & leptonica-sys use pkg-config on macOS, vcpkg on Windows.
       #
-      # Linux:   apt .pc files → pkg-config finds them, -sys crates link dynamically.
-      # macOS:   Homebrew  .pc files → pkg-config finds them.
+      # macOS:   Homebrew .pc files → pkg-config finds them.
       # Windows: vcpkg installs static libs → the vcpkg Rust build helper
       #          (used internally by both -sys crates) discovers them via
       #          VCPKG_ROOT with the default triplet x64-windows-static-md.
-
-      - name: Install system deps (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev librsvg2-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            libtesseract-dev libleptonica-dev pkg-config build-essential
-          echo "=== pkg-config verification ==="
-          pkg-config --modversion tesseract
-          pkg-config --modversion lept
 
       - name: Install system deps (macOS)
         if: matrix.os == 'macos-latest'

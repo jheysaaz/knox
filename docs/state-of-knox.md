@@ -151,7 +151,7 @@ src-tauri/src/
 6. **`history.rs` JSON I/O is on the main thread** — `push_history()` calls `save_history()` synchronously inside the lock. For slow disks, this blocks the queue.
 7. **`engine.rs` sequential OCR phase** — OCR runs sequentially per file because `TessApi` is not `Sync`. This is correct (Tesseract C API is not thread-safe), but means multi-file concurrency only helps preprocessing, not the bottleneck (OCR). This is fine but should be documented.
 8. **`CommandError` type uses `String` for kind** — Instead of an enum, it uses `"validation"`, `"io"`, `"queue"`, `"history"`, `"pipeline"` strings. Easy to typo. Should use a proper enum.
-9. **`build.rs` panics on `x86_64-apple-darwin`** — Explicitly blocks Intel Macs. This likely exceeds the project scope but should be documented more visibly.
+9. **`build.rs` panics on `x86_64-apple-darwin`** — Explicitly blocks Intel Macs (Apple Silicon only).
 10. **No `DesktopCapturer` or `globalShortcut` permissions** — CSP is restrictive. This is correct for security but limits future features.
 
 ### 4.3 OCR Pipeline Assessment
@@ -269,7 +269,7 @@ What exists is exceptionally well-written:
 
 **Strength: 9/10**
 
-- CI runs on all 3 platforms (ubuntu, macOS ARM, Windows) on push/PR
+- CI runs on macOS ARM and Windows on push/PR
 - Tests: `pnpm build`, `pnpm test`, `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`
 - Caches: pnpm store, Rust (Swatinem), vcpkg (Windows), sccache (Windows)
 - Release pipeline with manual dispatch (select OSes) + tag-push automation
@@ -353,9 +353,9 @@ What exists is exceptionally well-written:
 | **Theme** | ✅ Complete | Light/dark with localStorage persistence |
 | **Drag-and-drop** | ✅ Complete | Tauri native drag-drop events |
 | **Session logs** | ✅ Complete | In-memory + save-to-file |
-| **CI/CD** | ✅ Complete | 3-platform CI + release pipeline |
+| **CI/CD** | ✅ Complete | 2-platform CI + release pipeline |
 | **Linux support** | ❌ Non-goal (v1) | Not in spec |
-| **macOS support** | ✅ Complete | ARM64, DMG bundle |
+| **macOS support** | ✅ Complete | Apple Silicon only, DMG bundle |
 | **Windows support** | ⚠️ Partial | Build configured, no testing |
 | **End-to-end tests** | ❌ Missing | No integration tests with real Tesseract |
 | **History UI** | ❌ Missing | Backend ready, no frontend |

@@ -20,10 +20,6 @@ detect_archive() {
 
     case "$os-$arch" in
         Darwin-arm64)  echo "pdfium-mac-arm64.tgz" ;;
-        Darwin-x86_64) echo "pdfium-mac-x64.tgz" ;;
-        Linux-x86_64)  echo "pdfium-linux-x64.tgz" ;;
-        Linux-aarch64) echo "pdfium-linux-arm64.tgz" ;;
-        Linux-armv7l)  echo "pdfium-linux-arm.tgz" ;;
         MINGW*|MSYS*|*-x86_64) echo "pdfium-win-x64.zip" ;;
         *)
             echo "Unsupported platform: $os-$arch" >&2
@@ -67,7 +63,7 @@ esac
 rm -f "$TMP_FILE"
 
 # Remove extracted cruft, keep only the lib
-# pdfium archives contain: lib/libpdfium.dylib (macOS), lib/libpdfium.so (Linux), bin/pdfium.dll (Windows)
+# pdfium archives contain: lib/libpdfium.dylib (macOS), bin/pdfium.dll (Windows)
 if [[ -d "$OUT_DIR/lib" ]]; then
     mv "$OUT_DIR/lib/"* "$OUT_DIR/"
     rmdir "$OUT_DIR/lib"

@@ -21,7 +21,7 @@ Offline desktop application that batch-processes PDFs using a Rust-native OCR pi
 
 ## Supported Platforms
 
-- macOS 12+
+- macOS 12+ (Apple Silicon)
 - Windows 10+
 
 ## Core Functional Requirements

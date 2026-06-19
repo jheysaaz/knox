@@ -201,7 +201,7 @@ pub fn resolve_tessdata_path() -> Option<String> {
         std::env::var("TESSDATA_PREFIX").ok().map(PathBuf::from),
         Some(PathBuf::from("/opt/homebrew/share/tessdata")),
         Some(PathBuf::from("/usr/local/share/tessdata/")),
-        Some(PathBuf::from("/usr/share/tessdata/")),
+
     ]
     .into_iter()
     .flatten()
@@ -218,7 +218,7 @@ pub fn resolve_pdfium_path(app: &tauri::AppHandle) -> Option<String> {
             .ok()
             .map(|d| d.join("pdfium").join(pdfium_lib_name())),
         Some(PathBuf::from("/opt/homebrew/lib/libpdfium.dylib")),
-        Some(PathBuf::from("/usr/local/lib/libpdfium.so")),
+
     ]
     .into_iter()
     .flatten()
@@ -229,12 +229,8 @@ pub fn resolve_pdfium_path(app: &tauri::AppHandle) -> Option<String> {
 fn pdfium_lib_name() -> &'static str {
     if cfg!(target_os = "macos") {
         "libpdfium.dylib"
-    } else if cfg!(target_os = "linux") {
-        "libpdfium.so"
-    } else if cfg!(target_os = "windows") {
-        "pdfium.dll"
     } else {
-        "libpdfium.so"
+        "pdfium.dll"
     }
 }
 

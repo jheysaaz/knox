@@ -42,7 +42,7 @@ input.pdf ──→ load_document (lopdf, for page count)
 Search order (first match wins):
 
 1. `PDFIUM_LIB_PATH` environment variable
-2. Bundled resource: `resources/pdfium/libpdfium.dylib` (macOS), `libpdfium.so` (Linux), `pdfium.dll` (Windows)
+2. Bundled resource: `resources/pdfium/libpdfium.dylib` (macOS), `pdfium.dll` (Windows)
 3. System paths: `/opt/homebrew/lib/libpdfium.dylib`, `/usr/local/lib/libpdfium.so`
 
 Returns `None` if nothing found (graceful fallback to lopdf).

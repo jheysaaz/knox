@@ -58,9 +58,6 @@ fn main() {
         } else if target.contains("apple-darwin") {
             println!("cargo:rustc-link-lib=c++");
             println!("cargo:rustc-link-lib=z");
-        } else if target.contains("linux-gnu") {
-            println!("cargo:rustc-link-lib=stdc++");
-            println!("cargo:rustc-link-lib=z");
         }
     }
 }
