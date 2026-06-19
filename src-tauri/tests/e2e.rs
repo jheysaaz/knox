@@ -5,14 +5,16 @@ use std::path::{Path, PathBuf};
 
 use image::{GrayImage, Luma};
 use knox_lib::ocr_engine::image::preprocess;
-use knox_lib::ocr_engine::ocr::TessApi;
+use knox_lib::ocr_engine::ocr::{TessApi, WordBounds};
 use knox_lib::ocr_engine::pdf::{
     add_text_layers, encode_ccitt_g4, extract_lopdf_page, finalize, load_document,
     replace_page_images,
 };
+use knox_lib::ocr_engine::render::PdfiumEngine;
 use knox_lib::ocr_engine::types::{
-    CompressionMode, DeskewMode, ExistingTextMode, OcrSettings, PageSegMode,
+    BinarizationMode, CompressionMode, DeskewMode, ExistingTextMode, OcrSettings, PageSegMode,
 };
+use knox_lib::ocr_engine::error::PipelineError;
 use lopdf::{Dictionary, Document, Object, Stream};
 
 /// Renders `text` onto a white 300x100 GrayImage using the font at `font_path`.
@@ -137,6 +139,208 @@ fn find_system_font() -> Option<PathBuf> {
     None
 }
 
+/// Returns the path to a sample file in the project's `samples/` directory.
+/// Resolution is relative to `CARGO_MANIFEST_DIR` (which points to `src-tauri/`
+/// for integration tests).
+fn sample_path(name: &str) -> PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CARGO_MANIFEST_DIR has no parent (expected src-tauri/)");
+    root.join("samples").join(name)
+}
+
+/// Asserts that `path` is a valid PDF with a catalog, page tree, and the
+/// expected number of pages.
+fn validate_output_pdf(path: &Path, expected_pages: u32) {
+    assert!(
+        path.exists(),
+        "output PDF was not created: {}",
+        path.display()
+    );
+    let meta = std::fs::metadata(path).expect("failed to stat output");
+    assert!(
+        meta.len() > 100,
+        "output PDF too small ({})",
+        meta.len()
+    );
+
+    let doc = Document::load(path).expect("output is not a valid PDF");
+    let catalog = doc.catalog().expect("output PDF has no catalog");
+    assert!(
+        catalog.get(b"Pages").is_ok(),
+        "output PDF has no page tree"
+    );
+    assert_eq!(
+        doc.get_pages().len() as u32,
+        expected_pages,
+        "output PDF page count mismatch"
+    );
+}
+
+/// Renders a PDF page to an image using pdfium (if `pdfium` is `Some` and the
+/// library path is non-empty), falling back to lopdf embedded-image extraction.
+fn render_or_extract_page(
+    pdfium: Option<&PdfiumEngine>,
+    pdf_path: &Path,
+    doc: &Document,
+    page_number: u32,
+    dpi: u16,
+) -> Result<Option<GrayImage>, PipelineError> {
+    if let Some(pdfium) = pdfium {
+        let result = pdfium.render_page(pdf_path, page_number - 1, dpi, None)?;
+        if result.is_some() {
+            return Ok(result);
+        }
+    }
+    extract_lopdf_page(doc, page_number, ExistingTextMode::Rasterize)
+}
+
+/// Loads a sample PDF, processes every page through the full OCR pipeline
+/// (render → preprocess → Tesseract → text layers → replace images → save),
+/// then validates the output PDF structure.
+fn run_sample_pipeline(sample_name: &str, tessdata: &str) {
+    let src = sample_path(sample_name);
+    assert!(
+        src.exists(),
+        "sample file not found: {}",
+        src.display()
+    );
+
+    let tmp = std::env::temp_dir();
+    let input = tmp.join(format!("knox_e2e_input_{sample_name}"));
+    let output = tmp.join(format!("knox_e2e_output_{sample_name}"));
+    std::fs::copy(&src, &input).expect("failed to copy sample to temp");
+
+    let pdfium_path = std::env::var("PDFIUM_LIB_PATH").ok();
+    let pdfium = pdfium_path.as_ref().map(|p| PdfiumEngine::new(p.as_str()));
+    let pdfium_ref = pdfium.as_ref();
+
+    let mut doc = load_document(&input, None).expect("failed to load sample PDF");
+    let total_pages = doc.get_pages().len() as u32;
+
+    let settings = OcrSettings {
+        binarization: BinarizationMode::Otsu,
+        fixed_threshold: 128,
+        deskew_mode: DeskewMode::Radon,
+        denoise_level: 2,
+        existing_text: ExistingTextMode::Skip,
+        psm: PageSegMode::Auto,
+        compression: CompressionMode::Ccitt,
+        resolution_dpi: 300,
+        archive_enforcement: false,
+        continue_on_error: false,
+        password: None,
+    };
+
+    let tess = TessApi::new(tessdata, "eng").expect("failed to init Tesseract");
+    let mut ocr_results: BTreeMap<u32, Vec<WordBounds>> = BTreeMap::new();
+    let mut replacements: BTreeMap<u32, lopdf::Stream> = BTreeMap::new();
+    let mut processed_any = false;
+
+    for (page_number, _page_id) in &doc.get_pages() {
+        let image_opt = render_or_extract_page(
+            pdfium_ref,
+            &input,
+            &doc,
+            *page_number,
+            settings.resolution_dpi,
+        )
+        .expect("page extraction failed");
+
+        let Some(image) = image_opt else {
+            eprintln!("WARN: page {page_number} in {sample_name} has no extractable image");
+            continue;
+        };
+        processed_any = true;
+
+        let processed = preprocess(&image, &settings, false).expect("preprocessing failed");
+
+        tess.set_image_bytes(
+            &processed.ocr_image.to_vec(),
+            processed.ocr_image.width() as i32,
+            processed.ocr_image.height() as i32,
+            1,
+            processed.ocr_image.width() as i32,
+        )
+        .expect("failed to set image bytes for OCR");
+
+        let text = tess.get_text().expect("OCR failed");
+        let words = tess.get_words().expect("failed to get word bounds");
+
+        eprintln!(
+            "Page {page_number} OCR text ({sample_name}): {text:?}"
+        );
+
+        if text.trim().is_empty() {
+            eprintln!("WARN: page {page_number} produced no text");
+        }
+
+        ocr_results.insert(*page_number, words);
+
+        if let Some(ref bitonal) = processed.bitonal {
+            let stream = encode_ccitt_g4(
+                processed.ocr_image.width(),
+                processed.ocr_image.height(),
+                bitonal.data.clone(),
+            )
+            .expect("CCITT G4 encoding failed");
+            replacements.insert(*page_number, stream);
+        }
+    }
+
+    assert!(
+        processed_any,
+        "{sample_name}: no pages had extractable images"
+    );
+
+    if !replacements.is_empty() {
+        replace_page_images(&mut doc, replacements).expect("failed to replace page images");
+    }
+
+    add_text_layers(
+        &mut doc,
+        ocr_results,
+        settings.resolution_dpi as u32,
+        settings.resolution_dpi as u32,
+        settings.resolution_dpi,
+    )
+    .expect("failed to add text layers");
+
+    finalize(&mut doc, &output, settings.archive_enforcement)
+        .expect("failed to finalize PDF");
+
+    validate_output_pdf(&output, total_pages);
+
+    let _ = std::fs::remove_file(&input);
+    let _ = std::fs::remove_file(&output);
+
+    eprintln!("PASS: sample '{sample_name}' processed successfully");
+}
+
+#[test]
+fn e2e_with_poster_pdf() {
+    let tessdata = match std::env::var("TESSDATA_PREFIX") {
+        Ok(val) => val,
+        Err(_) => {
+            eprintln!("SKIP: TESSDATA_PREFIX not set");
+            return;
+        }
+    };
+    run_sample_pipeline("poster.pdf", &tessdata);
+}
+
+#[test]
+fn e2e_with_skew_pdf() {
+    let tessdata = match std::env::var("TESSDATA_PREFIX") {
+        Ok(val) => val,
+        Err(_) => {
+            eprintln!("SKIP: TESSDATA_PREFIX not set");
+            return;
+        }
+    };
+    run_sample_pipeline("skew.pdf", &tessdata);
+}
+
 #[test]
 fn e2e_ocr_pipeline_round_trip() {
     let tessdata = match std::env::var("TESSDATA_PREFIX") {
@@ -170,7 +374,7 @@ fn e2e_ocr_pipeline_round_trip() {
 
     // ── Step 3: Extract and process each page ──
     let settings = OcrSettings {
-        binarization: knox_lib::ocr_engine::types::BinarizationMode::Otsu,
+        binarization: BinarizationMode::Otsu,
         fixed_threshold: 128,
         deskew_mode: DeskewMode::Radon,
         denoise_level: 2,
@@ -179,6 +383,8 @@ fn e2e_ocr_pipeline_round_trip() {
         compression: CompressionMode::Ccitt,
         resolution_dpi: 300,
         archive_enforcement: false,
+        continue_on_error: false,
+        password: None,
     };
 
     let mut ocr_results: BTreeMap<u32, Vec<knox_lib::ocr_engine::ocr::WordBounds>> =

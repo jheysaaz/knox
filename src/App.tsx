@@ -1,8 +1,25 @@
-import { lazy, Suspense, useState } from 'react';
-import { Toaster } from 'sonner';
+import { getVersion } from '@tauri-apps/api/app';
+import { invoke } from '@tauri-apps/api/core';
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from '@tauri-apps/plugin-notification';
+import { check } from '@tauri-apps/plugin-updater';
+import { Download } from 'lucide-react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import { Toaster, toast } from 'sonner';
 import type { ProfileValues } from '@/components/advanced-options';
 import { Header } from '@/components/header';
 import { PasswordDialog } from '@/components/password-dialog';
+import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { GREETING } from '@/hooks/useGreeting';
@@ -53,6 +70,99 @@ export default function App() {
   });
   const [activeTab, setActiveTab] = useState('queue');
 
+  const checkForUpdates = useCallback(async () => {
+    try {
+      const [currentVersion, update] = await Promise.all([
+        getVersion(),
+        check(),
+      ]);
+      if (!update) return;
+
+      const currentPre = currentVersion.includes('-')
+        ? currentVersion.split('-')[1].split('.')[0]
+        : null;
+      const updatePre = update.version.includes('-')
+        ? update.version.split('-')[1].split('.')[0]
+        : null;
+      if (currentPre !== updatePre) return;
+
+      const maybeNotify = async (title: string, body?: string) => {
+        try {
+          const granted = await isPermissionGranted();
+          const ok = granted || (await requestPermission()) === 'granted';
+          if (ok) sendNotification({ title, body });
+        } catch {
+          /* silent */
+        }
+      };
+
+      const toastId = toast(
+        `Update v${update.version} available`,
+        {
+          description: update.body || undefined,
+          duration: 20_000,
+          action: {
+            label: 'Download',
+            onClick: async () => {
+              let downloaded = 0;
+              let contentLength = 0;
+              toast.loading('Downloading update...', { id: toastId });
+              try {
+                await update.downloadAndInstall((event) => {
+                  if (event.event === 'Started') {
+                    contentLength = event.data.contentLength ?? 0;
+                  } else if (event.event === 'Progress') {
+                    downloaded += event.data.chunkLength;
+                    const pct = contentLength
+                      ? Math.round((downloaded / contentLength) * 100)
+                      : 0;
+                    toast(
+                      <div className="text-sm">
+                        <Progress value={pct} className="mt-2" />
+                        <p className="text-xs !text-muted-foreground mt-1">
+                          {pct}%
+                        </p>
+                      </div>,
+                      { id: toastId, duration: Infinity },
+                    );
+                  }
+                });
+                toast.success('Update ready! Restart to apply.', {
+                  id: toastId,
+                  duration: 30_000,
+                  action: {
+                    label: 'Restart now',
+                    onClick: () => invoke('restart_app'),
+                  },
+                });
+                maybeNotify(
+                  'Update ready',
+                  `v${update.version} downloaded. Restart to apply.`,
+                );
+              } catch {
+                toast.error('Update download failed', { id: toastId });
+              }
+            },
+          },
+        },
+      );
+      maybeNotify(
+        'Update available',
+        `v${update.version} is ready to download.`,
+      );
+    } catch {
+      // silent — update check is best-effort
+    }
+  }, []);
+
+  const checkedRef = useRef(false);
+
+  useEffect(() => {
+    if (checkedRef.current) return;
+    checkedRef.current = true;
+    checkForUpdates();
+  }, [checkForUpdates]);
+
   return (
     <>
       <TooltipProvider>
@@ -99,6 +209,16 @@ export default function App() {
           </div>
         </div>
       </TooltipProvider>
+      {import.meta.env.DEV && (
+        <button
+          onClick={checkForUpdates}
+          className="fixed bottom-4 left-4 z-50 flex items-center gap-1.5 rounded-full bg-muted/80 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur-sm transition-colors hover:bg-muted hover:text-foreground"
+          title="Check for updates (dev)"
+        >
+          <Download size={14} />
+          Check Update
+        </button>
+      )}
       <PasswordDialog
         open={passwordDialogOpen}
         fileNames={pendingEncryptedFiles.map((f) => f.name)}
@@ -111,7 +231,7 @@ export default function App() {
         toastOptions={{
           classNames: {
             toast:
-              '!p-4 !gap-3 !items-center !rounded-xl !shadow-lg !border backdrop-blur-md',
+              '!p-4 !gap-3 !items-center !rounded-xl !shadow-lg !border backdrop-blur-md !bg-background !text-foreground',
             error:
               '!bg-red-50 dark:!bg-red-950/30 !border-red-600 dark:!border-red-500 !text-red-700 dark:!text-red-400',
             success:

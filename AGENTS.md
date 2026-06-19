@@ -28,6 +28,7 @@ pnpm test              # Vitest frontend tests
 cargo test             # Rust tests (in src-tauri/, no-default-features)
 cargo test --features integration,ocr  # Also run e2e OCR integration test
 pnpm tauri build       # Production build
+./scripts/test-update-server.sh  # Local updater test server (port 9876)
 ```
 
 ## Code Conventions
@@ -54,7 +55,8 @@ pnpm tauri build       # Production build
 | `src/App.tsx` | Main component: state, event wiring, Tauri API calls |
 | `src/types.ts` | Shared TypeScript types + re-exports from `types-gen/` |
 | `src/components/advanced-options.tsx` | `ProfileValues` form model (frontend-only, maps to Rust `OcrOptions` via `useQueue.ts`) |
-| `src-tauri/src/lib.rs` | All Tauri commands (12 total) |
+| `src-tauri/src/lib.rs` | All Tauri commands (13 total) |
+| `scripts/test-update-server.sh` | Local updater test server (Python, port 9876) |
 | `src-tauri/src/commands.rs` | Helper functions and job execution logic |
 | `src-tauri/src/security.rs` | Path validation |
 | `src-tauri/src/ocr_engine/` | Full OCR pipeline (11 modules) |
@@ -77,6 +79,7 @@ pnpm tauri build       # Production build
 | `JobSpawn` | struct{index, options, processing} | Dequeued job metadata |
 | `dequeue_job` | `(state: &SharedQueue) -> Option<JobSpawn>` | Pop next runnable job respecting concurrency/safe_mode |
 | `run_job` | `async (app, state, history, index, options, processing, cancelled)` | Execute one job: lock→emit→engine→finalize→push_history |
+| `restart_app` | `(app: AppHandle)` | Restart after update via `app.restart()` |
 
 ## Tauri Command API
 

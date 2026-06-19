@@ -7,9 +7,15 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use tauri::Manager;
 
+#[cfg(feature = "integration")]
+pub mod commands;
+#[cfg(not(feature = "integration"))]
 mod commands;
 mod history;
 pub mod ocr_engine;
+#[cfg(feature = "integration")]
+pub mod queue;
+#[cfg(not(feature = "integration"))]
 mod queue;
 mod security;
 use ocr_engine::runtime::RuntimeResources;
@@ -274,6 +280,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(dialog_init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .manage(Arc::new(Mutex::new(queue::QueueStore::default())))
         .manage(Arc::new(Mutex::new(HistoryStore::default())))
         .setup(|app| {
@@ -324,7 +332,8 @@ pub fn run() {
             commands::get_file_metadata,
             commands::log_window_shown,
             commands::ensure_language_packs,
-            commands::check_file_encrypted
+            commands::check_file_encrypted,
+            commands::restart_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

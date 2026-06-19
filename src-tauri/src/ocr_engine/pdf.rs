@@ -714,6 +714,7 @@ pub fn encode_ccitt_g4(width: u32, height: u32, bitonal: Vec<u8>) -> Result<Stre
     dparms.set("Rows", height as i64);
     dparms.set("BlackIs1", true);
     dict.set("DecodeParms", dparms);
+    dict.set("Decode", vec![Object::Integer(1), Object::Integer(0)]);
 
     Ok(Stream::new(dict, encoded))
 }

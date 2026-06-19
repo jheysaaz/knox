@@ -68,6 +68,7 @@ UI handles events:
 | `log_window_shown` | — | `()` | Log TTI measurement on first paint |
 | `ensure_language_packs` | `languages: Vec<String>` | `LanguagePackResult` | Download missing Tesseract traineddata |
 | `check_file_encrypted` | `path: String` | `FileEncryptionInfo` | Check if PDF is password-protected |
+| `restart_app` | — | `()` | Restart the app (after update install) |
 
 ## Events
 
@@ -78,6 +79,15 @@ UI handles events:
 | `jobProgress` | `Job` | Job status transitions |
 | `jobFinished` | `Job` | Job completes, fails, or is cancelled |
 | `historyUpdated` | `Vec<HistoryEntry>` | History is modified |
+
+### Updater (frontend-only, no events)
+
+| Call | Source | Description |
+|---|---|---|
+| `check()` | `@tauri-apps/plugin-updater` | Fetch latest.json, compare versions, return `Update \| null` |
+| `update.downloadAndInstall(cb)` | `@tauri-apps/plugin-updater` | Download artifact with progress callback, then install |
+| `getVersion()` | `@tauri-apps/api/app` | Current app version string |
+| `invoke('restart_app')` | `@tauri-apps/api/core` | Restart app after install |
 
 Listener pattern:
 ```typescript
@@ -105,7 +115,51 @@ replace image streams → save output
 
 ## Hybrid Rendering Architecture
 | Module | Role |
-|---|---|
+|---|---|---|
 | `render.rs` | PdfiumEngine wrapper with runtime dylib loading and fallback |
 | `pdf.rs` | Lopdf extraction (fallback) + output encoding/saving |
 | `engine.rs` | Hybrid loop: tries pdfium first, falls back per page |
+
+## Updater
+
+### How It Works
+1. On app startup (and dev "Check Update" button), `checkForUpdates()` in `src/App.tsx` fires.
+2. Calls `getVersion()` + `check()` (from `@tauri-apps/plugin-updater`) in parallel.
+3. If update version is same "channel" (stable→stable, beta→beta, etc.) and newer, a sonner toast with "Download" action appears.
+4. On download click, `downloadAndInstall(onEvent)` streams the artifact with progress events.
+5. Progress updates the toast with a `<Progress>` bar.
+6. On completion, toast switches to "Restart now" which invokes the `restart_app` command.
+
+### Version Channel Filtering
+Logic in `src/App.tsx:checkForUpdates`:
+- Extract the pre-release tag from both versions (`1.0.0-beta.1` → `beta`)
+- Stable (no tag) → only stable updates
+- Pre-release → only matching channel (beta→beta, rc→rc, etc.)
+
+### Local Testing
+
+```bash
+# Terminal 1 — start update server
+./scripts/test-update-server.sh
+
+# Terminal 2 — run app
+pnpm tauri dev
+```
+
+The script:
+1. Backs up `tauri.conf.json`, patches the updater endpoint to `http://localhost:9876/latest.json`
+2. Creates a test `latest.json` with an auto-bumped version on the same channel
+3. Generates a 10MB dummy DMG for download progress
+4. Starts Python HTTP server on port 9876
+5. On `Ctrl+C`, restores the original `tauri.conf.json`
+
+The download will show progress bars but fail on signature mismatch (expected for dummy artifacts).
+
+### Config (`tauri.conf.json`)
+- `bundle.createUpdaterArtifacts: true` — generates `.sig` + update bundles during `pnpm tauri build`
+- `plugins.updater.pubkey` — public key for signature verification
+- `plugins.updater.endpoints` — URL to `latest.json` (GitHub Releases or local for dev)
+
+### CI (`release.yml`)
+- Sets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` from secrets
+- `tauri-apps/tauri-action@v0` generates signed update artifacts automatically

@@ -589,6 +589,7 @@ pub fn start_queue(
     let cancelled = queue.cancelled.clone();
     queue.cancelled.store(false, std::sync::atomic::Ordering::SeqCst);
     queue.is_running = true;
+    emit_queue_state(&app, &queue);
     drop(queue);
 
     let state = state.inner().clone();
@@ -709,4 +710,10 @@ pub fn log_window_shown() {
         elapsed_ms = elapsed.as_millis() as u64,
         "window shown — app ready"
     );
+}
+
+#[tauri::command]
+pub fn restart_app(app: tauri::AppHandle) {
+    tracing::info!(target: "knox::updater", "restarting app after update");
+    app.restart();
 }

@@ -29,6 +29,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": [
       "dmg",
       "msi",
@@ -49,6 +50,14 @@
       "files": {
         "Resources/Assets.car": "resources/Assets.car"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBQjhCNjVFNEY0N0E5NEEKUldSS3FVZFBYcmE0U3Zyem1CZmV0ZG14Y1FjRHJBMU1ZZUhaVFhPaG5PUHFaNE12NFBwNjhFY3AK",
+      "endpoints": [
+        "http://localhost:9876/latest.json"
+      ]
     }
   }
 }
