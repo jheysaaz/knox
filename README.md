@@ -57,6 +57,9 @@ pnpm tauri build       # Production build
 
 Offline-only; no cloud dependencies.
 
+## Credits
+- This project has some inspiration on [OCRmyPDF](https://github.com/ocrmypdf/OCRmyPDF) and also use some samples of them to test OCR. The OCRmyPDF project is lincensed under [MPL-2.0 license](https://github.com/ocrmypdf/OCRmyPDF/blob/main/LICENSE)
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
