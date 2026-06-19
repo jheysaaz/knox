@@ -1,7 +1,7 @@
-import { QueueView } from "@/components/queue-view";
-import { LogPanel } from "@/components/log-panel";
-import { HistoryView } from "@/components/history-view";
-import type { FileItem, LogEntry, HistoryEntry } from "@/types";
+import { HistoryView } from '@/components/history-view';
+import { LogPanel } from '@/components/log-panel';
+import { QueueView } from '@/components/queue-view';
+import type { FileItem, HistoryEntry, LogEntry } from '@/types';
 
 interface RightPanelProps {
   files: FileItem[];

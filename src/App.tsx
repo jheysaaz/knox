@@ -1,15 +1,15 @@
-import { Suspense, lazy, useState } from "react";
-import { Toaster } from "sonner";
-import { Header } from "@/components/header";
-import { Spinner } from "@/components/ui/spinner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { GREETING } from "@/hooks/useGreeting";
-import { useLogger } from "@/hooks/useLogger";
-import { useQueue } from "@/hooks/useQueue";
-import type { ProfileValues } from "@/components/advanced-options";
+import { lazy, Suspense, useState } from 'react';
+import { Toaster } from 'sonner';
+import type { ProfileValues } from '@/components/advanced-options';
+import { Header } from '@/components/header';
+import { Spinner } from '@/components/ui/spinner';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { GREETING } from '@/hooks/useGreeting';
+import { useLogger } from '@/hooks/useLogger';
+import { useQueue } from '@/hooks/useQueue';
 
-const LeftPanel = lazy(() => import("./components/left-panel"));
-const RightPanel = lazy(() => import("./components/right-panel"));
+const LeftPanel = lazy(() => import('./components/left-panel'));
+const RightPanel = lazy(() => import('./components/right-panel'));
 
 export default function App() {
   const { logs, addLog } = useLogger();
@@ -34,16 +34,16 @@ export default function App() {
   } = useQueue(addLog);
   const [settings, setSettings] = useState<ProfileValues>({
     memoryPages: 30,
-    binarization: "otsu",
+    binarization: 'otsu',
     fixedThreshold: 128,
-    deskew: "radon",
+    deskew: 'radon',
     denoiseLevel: 2,
-    existingText: "skip",
-    psm: "auto",
-    compression: "ccitt",
-    resolution: "300",
+    existingText: 'skip',
+    psm: 'auto',
+    compression: 'ccitt',
+    resolution: '300',
     archiveEnforcement: false,
-    languages: ["eng", "spa"],
+    languages: ['eng', 'spa'],
     safeMode: false,
   });
 
@@ -100,14 +100,14 @@ export default function App() {
         toastOptions={{
           classNames: {
             toast:
-              "!p-4 !gap-3 !items-center !rounded-xl !shadow-lg !border backdrop-blur-md",
+              '!p-4 !gap-3 !items-center !rounded-xl !shadow-lg !border backdrop-blur-md',
             error:
-              "!bg-red-50 dark:!bg-red-950/30 !border-red-600 dark:!border-red-500 !text-red-700 dark:!text-red-400",
+              '!bg-red-50 dark:!bg-red-950/30 !border-red-600 dark:!border-red-500 !text-red-700 dark:!text-red-400',
             success:
-              "!bg-emerald-50 dark:!bg-emerald-950/30 !border-emerald-600 dark:!border-emerald-500 !text-emerald-700 dark:!text-emerald-400",
+              '!bg-emerald-50 dark:!bg-emerald-950/30 !border-emerald-600 dark:!border-emerald-500 !text-emerald-700 dark:!text-emerald-400',
             warning:
-              "!bg-amber-50 dark:!bg-amber-950/30 !border-amber-600 dark:!border-amber-500 !text-amber-700 dark:!text-amber-400",
-            info: "!bg-blue-50 dark:!bg-blue-950/30 !border-blue-600 dark:!border-blue-500 !text-blue-700 dark:!text-blue-400",
+              '!bg-amber-50 dark:!bg-amber-950/30 !border-amber-600 dark:!border-amber-500 !text-amber-700 dark:!text-amber-400',
+            info: '!bg-blue-50 dark:!bg-blue-950/30 !border-blue-600 dark:!border-blue-500 !text-blue-700 dark:!text-blue-400',
           },
         }}
       />

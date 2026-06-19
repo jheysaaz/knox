@@ -1,45 +1,44 @@
-import { useCallback, useMemo, useState } from "react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Card, CardContent } from "@/components/ui/card";
 import {
-  Scale,
   FileDown,
+  HelpCircle,
+  Scale,
   Scan,
   SlidersHorizontal,
-  HelpCircle,
-} from "lucide-react";
-import { Slider } from "@/components/ui/slider";
+} from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import { LanguageSelect } from '@/components/language-select';
+import { Card, CardContent } from '@/components/ui/card';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
-  SelectTrigger,
-  SelectValue,
   SelectContent,
   SelectGroup,
   SelectItem,
-} from "@/components/ui/select";
-
-import { Switch } from "@/components/ui/switch";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Tooltip,
-  TooltipTrigger,
   TooltipContent,
-} from "@/components/ui/tooltip";
-import { LanguageSelect } from "@/components/language-select";
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
-type ProfileKey = "balanced" | "max-compression" | "high-fidelity";
-type TabKey = ProfileKey | "custom";
+type ProfileKey = 'balanced' | 'max-compression' | 'high-fidelity';
+type TabKey = ProfileKey | 'custom';
 
 /** Values for all advanced OCR settings configurable through the UI. */
 export interface ProfileValues {
   memoryPages: number;
-  binarization: "otsu" | "bradley-roth" | "fixed";
+  binarization: 'otsu' | 'bradley-roth' | 'fixed';
   fixedThreshold: number;
-  deskew: "radon" | "hough" | "disabled";
+  deskew: 'radon' | 'hough' | 'disabled';
   denoiseLevel: number;
-  existingText: "skip" | "rasterize";
-  psm: "auto" | "block" | "column" | "sparse";
-  compression: "ccitt" | "flate";
+  existingText: 'skip' | 'rasterize';
+  psm: 'auto' | 'block' | 'column' | 'sparse';
+  compression: 'ccitt' | 'flate';
   resolution: string;
   archiveEnforcement: boolean;
   languages: string[];
@@ -49,44 +48,44 @@ export interface ProfileValues {
 const PROFILES: Record<ProfileKey, ProfileValues> = {
   balanced: {
     memoryPages: 30,
-    binarization: "otsu",
+    binarization: 'otsu',
     fixedThreshold: 128,
-    deskew: "radon",
+    deskew: 'radon',
     denoiseLevel: 2,
-    existingText: "skip",
-    psm: "auto",
-    compression: "flate",
-    resolution: "300",
+    existingText: 'skip',
+    psm: 'auto',
+    compression: 'flate',
+    resolution: '300',
     archiveEnforcement: false,
-    languages: ["eng", "spa"],
+    languages: ['eng', 'spa'],
     safeMode: false,
   },
-  "max-compression": {
+  'max-compression': {
     memoryPages: 15,
-    binarization: "otsu",
+    binarization: 'otsu',
     fixedThreshold: 128,
-    deskew: "radon",
+    deskew: 'radon',
     denoiseLevel: 4,
-    existingText: "rasterize",
-    psm: "auto",
-    compression: "ccitt",
-    resolution: "150",
+    existingText: 'rasterize',
+    psm: 'auto',
+    compression: 'ccitt',
+    resolution: '150',
     archiveEnforcement: false,
-    languages: ["eng", "spa"],
+    languages: ['eng', 'spa'],
     safeMode: false,
   },
-  "high-fidelity": {
+  'high-fidelity': {
     memoryPages: 50,
-    binarization: "fixed",
+    binarization: 'fixed',
     fixedThreshold: 128,
-    deskew: "radon",
+    deskew: 'radon',
     denoiseLevel: 0,
-    existingText: "skip",
-    psm: "auto",
-    compression: "flate",
-    resolution: "600",
+    existingText: 'skip',
+    psm: 'auto',
+    compression: 'flate',
+    resolution: '600',
     archiveEnforcement: true,
-    languages: ["eng", "spa"],
+    languages: ['eng', 'spa'],
     safeMode: false,
   },
 };
@@ -157,10 +156,9 @@ function SettingsPanel({
               Safe Mode (1 file at a time)
             </span>
             <InfoTip>
-              Forces the engine to process only one file at a time,
-              reducing memory pressure on low-spec machines. Useful when
-              processing very large PDFs or running on machines with
-              limited RAM.
+              Forces the engine to process only one file at a time, reducing
+              memory pressure on low-spec machines. Useful when processing very
+              large PDFs or running on machines with limited RAM.
             </InfoTip>
           </div>
           <Switch
@@ -190,7 +188,7 @@ function SettingsPanel({
           <Select
             value={values.binarization}
             onValueChange={(v) =>
-              onChange({ binarization: v as "otsu" | "bradley-roth" | "fixed" })
+              onChange({ binarization: v as 'otsu' | 'bradley-roth' | 'fixed' })
             }
           >
             <SelectTrigger className="w-40">
@@ -206,7 +204,7 @@ function SettingsPanel({
           </Select>
         </div>
 
-        {values.binarization === "fixed" && (
+        {values.binarization === 'fixed' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-1.5 min-w-0">
@@ -246,7 +244,7 @@ function SettingsPanel({
           <Select
             value={values.deskew}
             onValueChange={(v) =>
-              onChange({ deskew: v as "radon" | "hough" | "disabled" })
+              onChange({ deskew: v as 'radon' | 'hough' | 'disabled' })
             }
           >
             <SelectTrigger className="w-40">
@@ -307,7 +305,7 @@ function SettingsPanel({
           <RadioGroup
             value={values.existingText}
             onValueChange={(v) =>
-              onChange({ existingText: v as "skip" | "rasterize" })
+              onChange({ existingText: v as 'skip' | 'rasterize' })
             }
           >
             <div className="flex items-center gap-2">
@@ -345,7 +343,7 @@ function SettingsPanel({
           <Select
             value={values.psm}
             onValueChange={(v) =>
-              onChange({ psm: v as "auto" | "block" | "column" | "sparse" })
+              onChange({ psm: v as 'auto' | 'block' | 'column' | 'sparse' })
             }
           >
             <SelectTrigger className="w-40">
@@ -399,7 +397,7 @@ function SettingsPanel({
           <Select
             value={values.compression}
             onValueChange={(v) =>
-              onChange({ compression: v as "ccitt" | "flate" })
+              onChange({ compression: v as 'ccitt' | 'flate' })
             }
           >
             <SelectTrigger className="w-44">
@@ -475,7 +473,7 @@ export function AdvancedOptions({
   const [customOverride, setCustomOverride] = useState(false);
 
   const activeTab = useMemo<TabKey>(() => {
-    if (customOverride) return "custom";
+    if (customOverride) return 'custom';
     for (const key of Object.keys(PROFILES) as ProfileKey[]) {
       const profile = PROFILES[key];
       const matches = (Object.keys(profile) as (keyof ProfileValues)[]).every(
@@ -483,13 +481,13 @@ export function AdvancedOptions({
       );
       if (matches) return key;
     }
-    return "custom";
+    return 'custom';
   }, [value, customOverride]);
 
   const handleTabChange = useCallback(
     (tab: string) => {
       const key = tab as TabKey;
-      if (key === "custom") {
+      if (key === 'custom') {
         setCustomOverride(true);
         return;
       }
@@ -508,14 +506,14 @@ export function AdvancedOptions({
 
   const tabs = useMemo(
     () => [
-      { key: "balanced" as TabKey, icon: Scale, label: "Balanced" },
+      { key: 'balanced' as TabKey, icon: Scale, label: 'Balanced' },
       {
-        key: "max-compression" as TabKey,
+        key: 'max-compression' as TabKey,
         icon: FileDown,
-        label: "Max Compression",
+        label: 'Max Compression',
       },
-      { key: "high-fidelity" as TabKey, icon: Scan, label: "High Fidelity" },
-      { key: "custom" as TabKey, icon: SlidersHorizontal, label: "Custom" },
+      { key: 'high-fidelity' as TabKey, icon: Scan, label: 'High Fidelity' },
+      { key: 'custom' as TabKey, icon: SlidersHorizontal, label: 'Custom' },
     ],
     [],
   );

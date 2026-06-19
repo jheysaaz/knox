@@ -1,15 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
-import { useQueue } from "@/hooks/useQueue";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { act, renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useQueue } from '@/hooks/useQueue';
 
-vi.mock("sonner", () => ({
+vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
-const eventHandlers: Record<string, (event: { payload: unknown }) => void> =
-  {};
+const eventHandlers: Record<string, (event: { payload: unknown }) => void> = {};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -27,29 +26,29 @@ function emitEvent(event: string, payload: unknown) {
 
 const defaultSettings = {
   memoryPages: 30,
-  binarization: "otsu" as const,
+  binarization: 'otsu' as const,
   fixedThreshold: 128,
-  deskew: "radon" as const,
+  deskew: 'radon' as const,
   denoiseLevel: 2,
-  existingText: "skip" as const,
-  psm: "auto" as const,
-  compression: "ccitt" as const,
-  resolution: "300",
+  existingText: 'skip' as const,
+  psm: 'auto' as const,
+  compression: 'ccitt' as const,
+  resolution: '300',
   archiveEnforcement: false,
-  languages: ["eng"],
+  languages: ['eng'],
   safeMode: false,
 };
 
-describe("useQueue", () => {
+describe('useQueue', () => {
   it("handleStart calls invoke('enqueue') with correct payload", async () => {
     vi.mocked(invoke)
       .mockResolvedValueOnce({
         downloaded: [],
-        skipped: ["eng"],
+        skipped: ['eng'],
         errors: {},
       })
       .mockResolvedValueOnce({
-        jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+        jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
         isRunning: false,
       })
       .mockResolvedValue([]);
@@ -59,17 +58,17 @@ describe("useQueue", () => {
     act(() => {
       result.current.handleFilesAdded([
         {
-          id: "1",
-          path: "/test.pdf",
-          name: "test.pdf",
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
           size: 1024,
-          status: "pending",
+          status: 'pending',
         },
       ]);
     });
 
     act(() => {
-      result.current.setOutputDir("/output");
+      result.current.setOutputDir('/output');
     });
 
     await act(async () => {
@@ -78,16 +77,16 @@ describe("useQueue", () => {
 
     expect(invoke).toHaveBeenNthCalledWith(
       2,
-      "enqueue",
+      'enqueue',
       expect.objectContaining({
         payload: expect.objectContaining({
-          files: ["/test.pdf"],
-          outputDir: "/output",
+          files: ['/test.pdf'],
+          outputDir: '/output',
         }),
       }),
     );
-    expect(invoke).toHaveBeenNthCalledWith(4, "start_queue");
-    expect(addLog).toHaveBeenCalledWith("info", "Processing 1 file(s)...");
+    expect(invoke).toHaveBeenNthCalledWith(4, 'start_queue');
+    expect(addLog).toHaveBeenCalledWith('info', 'Processing 1 file(s)...');
   });
 
   it("handleStop calls invoke('pause_queue')", async () => {
@@ -98,47 +97,47 @@ describe("useQueue", () => {
       await result.current.handleStop();
     });
 
-    expect(invoke).toHaveBeenCalledWith("pause_queue");
-    expect(addLog).toHaveBeenCalledWith("info", "Queue paused");
+    expect(invoke).toHaveBeenCalledWith('pause_queue');
+    expect(addLog).toHaveBeenCalledWith('info', 'Queue paused');
   });
 
-  it("pipeline-progress event updates file status and progress", async () => {
+  it('pipeline-progress event updates file status and progress', async () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
 
     vi.mocked(invoke)
       .mockResolvedValueOnce({
         downloaded: [],
-        skipped: ["eng"],
+        skipped: ['eng'],
         errors: {},
       })
       .mockResolvedValueOnce({
-        jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+        jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
         isRunning: false,
       })
       .mockResolvedValue([]);
     act(() => {
       result.current.handleFilesAdded([
         {
-          id: "1",
-          path: "/test.pdf",
-          name: "test.pdf",
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
           size: 1024,
-          status: "pending",
+          status: 'pending',
         },
       ]);
     });
     act(() => {
-      result.current.setOutputDir("/output");
+      result.current.setOutputDir('/output');
     });
     await act(async () => {
       await result.current.handleStart(defaultSettings);
     });
 
     act(() => {
-      emitEvent("pipeline-progress", {
-        jobId: "1",
-        status: "processing",
+      emitEvent('pipeline-progress', {
+        jobId: '1',
+        status: 'processing',
         currentPage: 3,
         totalPages: 10,
         totalFilesProcessed: 1,
@@ -147,162 +146,159 @@ describe("useQueue", () => {
       });
     });
 
-    const file = result.current.files.find((f) => f.id === "1");
-    expect(file?.status).toBe("processing");
+    const file = result.current.files.find((f) => f.id === '1');
+    expect(file?.status).toBe('processing');
     expect(file?.progress).toBe(30);
   });
 
-  it("pipeline-progress with failed status sets error", async () => {
+  it('pipeline-progress with failed status sets error', async () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
 
     vi.mocked(invoke)
       .mockResolvedValueOnce({
         downloaded: [],
-        skipped: ["eng"],
+        skipped: ['eng'],
         errors: {},
       })
       .mockResolvedValueOnce({
-        jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+        jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
         isRunning: false,
       })
       .mockResolvedValue([]);
     act(() => {
       result.current.handleFilesAdded([
         {
-          id: "1",
-          path: "/test.pdf",
-          name: "test.pdf",
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
           size: 1024,
-          status: "pending",
+          status: 'pending',
         },
       ]);
     });
     act(() => {
-      result.current.setOutputDir("/output");
+      result.current.setOutputDir('/output');
     });
     await act(async () => {
       await result.current.handleStart(defaultSettings);
     });
 
     act(() => {
-      emitEvent("pipeline-progress", {
-        jobId: "1",
-        status: "failed",
+      emitEvent('pipeline-progress', {
+        jobId: '1',
+        status: 'failed',
         currentPage: 0,
         totalPages: 0,
         totalFilesProcessed: 0,
         totalFilesInQueue: 1,
         averageMsPerPage: 0,
-        errorMessage: "OCR failed",
+        errorMessage: 'OCR failed',
       });
     });
 
-    const file = result.current.files.find((f) => f.id === "1");
-    expect(file?.status).toBe("error");
-    expect(addLog).toHaveBeenCalledWith("error", "OCR failed");
+    const file = result.current.files.find((f) => f.id === '1');
+    expect(file?.status).toBe('error');
+    expect(addLog).toHaveBeenCalledWith('error', 'OCR failed');
   });
 
-  it("jobFinished event updates file status to complete", async () => {
+  it('jobFinished event updates file status to complete', async () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
 
     vi.mocked(invoke)
       .mockResolvedValueOnce({
         downloaded: [],
-        skipped: ["eng"],
+        skipped: ['eng'],
         errors: {},
       })
       .mockResolvedValueOnce({
-        jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+        jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
         isRunning: false,
       })
       .mockResolvedValue([]);
     act(() => {
       result.current.handleFilesAdded([
         {
-          id: "1",
-          path: "/test.pdf",
-          name: "test.pdf",
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
           size: 1024,
-          status: "pending",
+          status: 'pending',
         },
       ]);
     });
     act(() => {
-      result.current.setOutputDir("/output");
+      result.current.setOutputDir('/output');
     });
     await act(async () => {
       await result.current.handleStart(defaultSettings);
     });
 
     act(() => {
-      emitEvent("jobFinished", {
-        id: "1",
-        inputPath: "/test.pdf",
-        outputPath: "/output/test.pdf",
-        status: "completed",
+      emitEvent('jobFinished', {
+        id: '1',
+        inputPath: '/test.pdf',
+        outputPath: '/output/test.pdf',
+        status: 'completed',
       });
     });
 
-    const file = result.current.files.find((f) => f.id === "1");
-    expect(file?.status).toBe("complete");
+    const file = result.current.files.find((f) => f.id === '1');
+    expect(file?.status).toBe('complete');
     expect(file?.progress).toBe(100);
     expect(addLog).toHaveBeenCalledWith(
-      "info",
-      "Completed: /test.pdf → /output/test.pdf",
+      'info',
+      'Completed: /test.pdf → /output/test.pdf',
     );
   });
 
-  it("jobFinished with failed status sets error", async () => {
+  it('jobFinished with failed status sets error', async () => {
     const addLog = vi.fn();
     const { result } = renderHook(() => useQueue(addLog));
 
     vi.mocked(invoke)
       .mockResolvedValueOnce({
         downloaded: [],
-        skipped: ["eng"],
+        skipped: ['eng'],
         errors: {},
       })
       .mockResolvedValueOnce({
-        jobs: [{ id: "1", inputPath: "/test.pdf", status: "queued" }],
+        jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
         isRunning: false,
       })
       .mockResolvedValue([]);
     act(() => {
       result.current.handleFilesAdded([
         {
-          id: "1",
-          path: "/test.pdf",
-          name: "test.pdf",
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
           size: 1024,
-          status: "pending",
+          status: 'pending',
         },
       ]);
     });
     act(() => {
-      result.current.setOutputDir("/output");
+      result.current.setOutputDir('/output');
     });
     await act(async () => {
       await result.current.handleStart(defaultSettings);
     });
 
     act(() => {
-      emitEvent("jobFinished", {
-        id: "1",
-        inputPath: "/test.pdf",
-        outputPath: "/output/test.pdf",
-        status: "failed",
-        errorMessage: "Out of memory",
+      emitEvent('jobFinished', {
+        id: '1',
+        inputPath: '/test.pdf',
+        outputPath: '/output/test.pdf',
+        status: 'failed',
+        errorMessage: 'Out of memory',
       });
     });
 
-    const file = result.current.files.find((f) => f.id === "1");
-    expect(file?.status).toBe("error");
-    expect(addLog).toHaveBeenCalledWith(
-      "error",
-      "Failed: Out of memory",
-    );
+    const file = result.current.files.find((f) => f.id === '1');
+    expect(file?.status).toBe('error');
+    expect(addLog).toHaveBeenCalledWith('error', 'Failed: Out of memory');
   });
 
   it("handleClearFiles calls invoke('clear_queue') and clears files", async () => {
@@ -313,11 +309,11 @@ describe("useQueue", () => {
     act(() => {
       result.current.handleFilesAdded([
         {
-          id: "1",
-          path: "/test.pdf",
-          name: "test.pdf",
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
           size: 1024,
-          status: "pending",
+          status: 'pending',
         },
       ]);
     });
@@ -326,9 +322,9 @@ describe("useQueue", () => {
       await result.current.handleClearFiles();
     });
 
-    expect(invoke).toHaveBeenCalledWith("clear_queue");
+    expect(invoke).toHaveBeenCalledWith('clear_queue');
     expect(result.current.files).toHaveLength(0);
-    expect(addLog).toHaveBeenCalledWith("info", "Queue cleared");
+    expect(addLog).toHaveBeenCalledWith('info', 'Queue cleared');
   });
 
   it("handleFileRemove calls invoke('remove_job') for queued files", async () => {
@@ -339,22 +335,22 @@ describe("useQueue", () => {
     act(() => {
       result.current.handleFilesAdded([
         {
-          id: "1",
-          path: "/test.pdf",
-          name: "test.pdf",
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
           size: 1024,
-          status: "pending",
+          status: 'pending',
           queued: true,
         },
       ]);
     });
 
     await act(async () => {
-      await result.current.handleFileRemove("1");
+      await result.current.handleFileRemove('1');
     });
 
-    expect(invoke).toHaveBeenCalledWith("remove_job", { job_id: "1" });
+    expect(invoke).toHaveBeenCalledWith('remove_job', { job_id: '1' });
     expect(result.current.files).toHaveLength(0);
-    expect(addLog).toHaveBeenCalledWith("info", "Removed: test.pdf");
+    expect(addLog).toHaveBeenCalledWith('info', 'Removed: test.pdf');
   });
 });

@@ -1,8 +1,8 @@
-import { useCallback } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { FolderOpen } from "lucide-react";
+import { open } from '@tauri-apps/plugin-dialog';
+import { FolderOpen } from 'lucide-react';
+import { useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 /** Controls for selecting and displaying the output directory. */
 interface OutputDirectoryProps {
@@ -16,13 +16,13 @@ export function OutputDirectory({ value, onChange }: OutputDirectoryProps) {
     try {
       const selected = await open({
         directory: true,
-        title: "Select Output Directory",
+        title: 'Select Output Directory',
       });
       if (selected) {
         onChange(selected);
       }
     } catch (err) {
-      console.error("Directory dialog error:", err);
+      console.error('Directory dialog error:', err);
     }
   }, [onChange]);
 

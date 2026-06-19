@@ -1,19 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { FileDropZone } from "@/components/file-dropzone";
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { FileDropZone } from '@/components/file-dropzone';
 
-vi.mock("@tauri-apps/api/core", () => ({
+vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
+vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn(),
 }));
 
-describe("FileDropZone", () => {
+describe('FileDropZone', () => {
   const onFilesAdded = vi.fn();
 
   beforeEach(() => {
@@ -21,36 +21,36 @@ describe("FileDropZone", () => {
     vi.mocked(invoke).mockResolvedValue({ size: 1024 });
   });
 
-  it("renders drop zone with correct text", () => {
+  it('renders drop zone with correct text', () => {
     render(<FileDropZone onFilesAdded={onFilesAdded} />);
-    expect(screen.getByText("Drop PDF files here")).toBeInTheDocument();
-    expect(screen.getByText("or click to browse")).toBeInTheDocument();
+    expect(screen.getByText('Drop PDF files here')).toBeInTheDocument();
+    expect(screen.getByText('or click to browse')).toBeInTheDocument();
   });
 
-  it("opens file dialog on click", async () => {
-    vi.mocked(open).mockResolvedValue(["/path/to/doc.pdf"]);
+  it('opens file dialog on click', async () => {
+    vi.mocked(open).mockResolvedValue(['/path/to/doc.pdf']);
     render(<FileDropZone onFilesAdded={onFilesAdded} />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole('button'));
     expect(open).toHaveBeenCalledWith({
       multiple: true,
-      filters: [{ name: "PDF", extensions: ["pdf"] }],
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
     });
   });
 
-  it("ignores non-PDF files", async () => {
-    vi.mocked(open).mockResolvedValue(["/path/to/image.png"]);
+  it('ignores non-PDF files', async () => {
+    vi.mocked(open).mockResolvedValue(['/path/to/image.png']);
     render(<FileDropZone onFilesAdded={onFilesAdded} />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole('button'));
     expect(onFilesAdded).not.toHaveBeenCalled();
   });
 
-  it("handles dialog cancellation", async () => {
+  it('handles dialog cancellation', async () => {
     vi.mocked(open).mockResolvedValue(null);
     render(<FileDropZone onFilesAdded={onFilesAdded} />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole('button'));
     expect(onFilesAdded).not.toHaveBeenCalled();
   });
 });

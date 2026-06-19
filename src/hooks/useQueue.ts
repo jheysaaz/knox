@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { toast } from "sonner";
-import type { FileItem, LogEntry, HistoryEntry } from "@/types";
-import type { ProfileValues } from "@/components/advanced-options";
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import type { ProfileValues } from '@/components/advanced-options';
+import type { FileItem, HistoryEntry, LogEntry } from '@/types';
 
 interface QueueState {
   jobs: Job[];
@@ -14,7 +14,7 @@ interface Job {
   id: string;
   inputPath: string;
   outputPath: string;
-  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   percent: number;
   startedAt?: number;
   finishedAt?: number;
@@ -23,7 +23,7 @@ interface Job {
 
 interface PipelineProgress {
   jobId: string;
-  status: "processing" | "ocr" | "completed" | "failed";
+  status: 'processing' | 'ocr' | 'completed' | 'failed';
   currentPage: number;
   totalPages: number;
   totalFilesProcessed: number;
@@ -32,23 +32,23 @@ interface PipelineProgress {
   errorMessage?: string | null;
 }
 
-const mapJobStatus = (status: Job["status"]): FileItem["status"] => {
+const mapJobStatus = (status: Job['status']): FileItem['status'] => {
   switch (status) {
-    case "running":
-      return "processing";
-    case "completed":
-      return "complete";
-    case "failed":
-      return "error";
-    case "cancelled":
-      return "paused";
+    case 'running':
+      return 'processing';
+    case 'completed':
+      return 'complete';
+    case 'failed':
+      return 'error';
+    case 'cancelled':
+      return 'paused';
     default:
-      return "pending";
+      return 'pending';
   }
 };
 
 const mapSettingsToOptions = (values: ProfileValues) => ({
-  outputType: values.archiveEnforcement ? "pdfa" : "pdf",
+  outputType: values.archiveEnforcement ? 'pdfa' : 'pdf',
   safeMode: values.safeMode,
   binarization: values.binarization,
   fixedThreshold: values.fixedThreshold,
@@ -59,26 +59,28 @@ const mapSettingsToOptions = (values: ProfileValues) => ({
   compression: values.compression,
   resolutionDpi: Number(values.resolution),
   archiveEnforcement: values.archiveEnforcement,
-  languages: values.languages.join("+"),
+  languages: values.languages.join('+'),
   memoryPages: values.memoryPages,
 });
 
 const mapSettingsToProcessing = (values: ProfileValues) => ({
   maxConcurrentFiles: values.memoryPages,
   tessdataPath: undefined,
-  languages: values.languages.join("+"),
+  languages: values.languages.join('+'),
 });
 
-export function useQueue(addLog: (level: LogEntry["level"], message: string) => void) {
+export function useQueue(
+  addLog: (level: LogEntry['level'], message: string) => void,
+) {
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [outputDir, setOutputDir] = useState("");
+  const [outputDir, setOutputDir] = useState('');
   const [showActivity, setShowActivity] = useState(true);
   const [starting, setStarting] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
   const isRunning = useMemo(
-    () => files.some((f) => f.status === "processing"),
+    () => files.some((f) => f.status === 'processing'),
     [files],
   );
 
@@ -95,10 +97,10 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
     if (listenersReady.current) return;
     listenersReady.current = true;
     const fns = await Promise.all([
-      listen<PipelineProgress>("pipeline-progress", (event) => {
+      listen<PipelineProgress>('pipeline-progress', (event) => {
         const progress = event.payload;
-        if (progress.status === "failed" && progress.errorMessage) {
-          addLog("error", progress.errorMessage);
+        if (progress.status === 'failed' && progress.errorMessage) {
+          addLog('error', progress.errorMessage);
         }
         setFiles((prev) =>
           prev.map((file) => {
@@ -109,17 +111,17 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
             return {
               ...file,
               status:
-                progress.status === "failed"
-                  ? "error"
-                  : progress.status === "completed"
-                    ? "complete"
-                    : "processing",
+                progress.status === 'failed'
+                  ? 'error'
+                  : progress.status === 'completed'
+                    ? 'complete'
+                    : 'processing',
               progress: percent,
             };
           }),
         );
       }),
-      listen<QueueState>("queueState", (event) => {
+      listen<QueueState>('queueState', (event) => {
         const snapshot = event.payload;
         setFiles((prev) =>
           prev.map((file) => {
@@ -133,7 +135,7 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
           }),
         );
       }),
-      listen<Job>("jobFinished", (event) => {
+      listen<Job>('jobFinished', (event) => {
         const job = event.payload;
         setFiles((prev) =>
           prev.map((file) =>
@@ -141,31 +143,31 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
               ? {
                   ...file,
                   status:
-                    job.status === "completed"
-                      ? "complete"
-                      : job.status === "cancelled"
-                        ? "paused"
-                        : "error",
-                  progress: job.status === "completed" ? 100 : file.progress,
+                    job.status === 'completed'
+                      ? 'complete'
+                      : job.status === 'cancelled'
+                        ? 'paused'
+                        : 'error',
+                  progress: job.status === 'completed' ? 100 : file.progress,
                   queued: true,
                 }
               : file,
           ),
         );
         addLog(
-          job.status === "completed"
-            ? "info"
-            : job.status === "cancelled"
-              ? "warn"
-              : "error",
-          job.status === "completed"
+          job.status === 'completed'
+            ? 'info'
+            : job.status === 'cancelled'
+              ? 'warn'
+              : 'error',
+          job.status === 'completed'
             ? `Completed: ${job.inputPath} → ${job.outputPath}`
-            : job.status === "cancelled"
+            : job.status === 'cancelled'
               ? `Paused: ${job.inputPath}`
               : `Failed: ${job.errorMessage || job.inputPath}`,
         );
       }),
-      listen<Job>("jobProgress", (event) => {
+      listen<Job>('jobProgress', (event) => {
         const job = event.payload;
         setFiles((prev) =>
           prev.map((file) =>
@@ -175,20 +177,20 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
           ),
         );
       }),
-      listen<HistoryEntry[]>("historyUpdated", (event) => {
+      listen<HistoryEntry[]>('historyUpdated', (event) => {
         setHistory(event.payload);
       }),
     ]);
     cleanupFns.current = fns;
 
     try {
-      const initial = await invoke<HistoryEntry[]>("get_history");
+      const initial = await invoke<HistoryEntry[]>('get_history');
       setHistory(initial);
     } catch {
       // history load is best-effort
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [addLog]);
 
   const handleFilesAdded = (newFiles: FileItem[]) => {
     setFiles((prev) =>
@@ -197,32 +199,32 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
         queued: file.queued ?? false,
       })),
     );
-    addLog("info", `${newFiles.length} file(s) added`);
+    addLog('info', `${newFiles.length} file(s) added`);
   };
 
   const handleFileRemove = useCallback(
     async (id: string) => {
       const file = files.find((f) => f.id === id);
       if (!file) return;
-      if (file.status === "processing") {
-        toast.error("Cannot remove a file that is currently processing");
+      if (file.status === 'processing') {
+        toast.error('Cannot remove a file that is currently processing');
         return;
       }
       if (!file.queued) {
         setFiles((prev) => prev.filter((f) => f.id !== id));
-        addLog("info", `Removed: ${file.name}`);
+        addLog('info', `Removed: ${file.name}`);
         return;
       }
       try {
-        await invoke("remove_job", { job_id: id });
+        await invoke('remove_job', { job_id: id });
         setFiles((prev) => prev.filter((f) => f.id !== id));
-        addLog("info", `Removed: ${file.name}`);
+        addLog('info', `Removed: ${file.name}`);
       } catch {
-        toast.error("Unable to remove file");
+        toast.error('Unable to remove file');
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [files],
+    [files, addLog],
   );
 
   const handleFileReprocess = useCallback(
@@ -232,7 +234,7 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
 
       if (file.queued) {
         try {
-          await invoke("remove_job", { job_id: id });
+          await invoke('remove_job', { job_id: id });
         } catch {
           // job may already be gone from backend
         }
@@ -241,34 +243,34 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
       setFiles((prev) =>
         prev.map((f) =>
           f.id === id
-            ? { ...f, status: "pending", queued: false, progress: undefined }
+            ? { ...f, status: 'pending', queued: false, progress: undefined }
             : f,
         ),
       );
-      addLog("info", `Queued for reprocess: ${file.name}`);
+      addLog('info', `Queued for reprocess: ${file.name}`);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [files],
+    [files, addLog],
   );
 
   const handleClearFiles = useCallback(async () => {
     try {
-      await invoke("clear_queue");
+      await invoke('clear_queue');
       setFiles([]);
-      addLog("info", "Queue cleared");
+      addLog('info', 'Queue cleared');
     } catch {
-      toast.error("Unable to clear queue");
+      toast.error('Unable to clear queue');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [addLog]);
 
   const handleStart = async (settings: ProfileValues) => {
     if (files.length === 0) {
-      toast.error("No files in queue");
+      toast.error('No files in queue');
       return;
     }
     if (!outputDir) {
-      toast.error("No output directory selected");
+      toast.error('No output directory selected');
       return;
     }
     setStarting(true);
@@ -276,11 +278,11 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
       const options = mapSettingsToOptions(settings);
       const processing = mapSettingsToProcessing(settings);
       const pending = files.filter(
-        (file) => file.status === "pending" && !file.queued,
+        (file) => file.status === 'pending' && !file.queued,
       );
       const paths = pending.map((file) => file.path);
       if (paths.length === 0) {
-        toast.error("No pending files to process");
+        toast.error('No pending files to process');
         return;
       }
 
@@ -290,21 +292,24 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
           downloaded: string[];
           skipped: string[];
           errors: Record<string, string>;
-        }>("ensure_language_packs", {
+        }>('ensure_language_packs', {
           languages: [...new Set(settings.languages)],
         });
         if (langResult.downloaded.length > 0) {
-          addLog("info", `Downloaded ${langResult.downloaded.length} language pack(s)`);
+          addLog(
+            'info',
+            `Downloaded ${langResult.downloaded.length} language pack(s)`,
+          );
         }
         if (Object.keys(langResult.errors).length > 0) {
           const failed = Object.entries(langResult.errors)
             .map(([l, e]) => `${l}: ${e}`)
-            .join("; ");
-          addLog("warn", `Language pack download issues: ${failed}`);
+            .join('; ');
+          addLog('warn', `Language pack download issues: ${failed}`);
         }
       }
 
-      const state = await invoke<QueueState>("enqueue", {
+      const state = await invoke<QueueState>('enqueue', {
         payload: {
           files: paths,
           outputDir,
@@ -314,9 +319,9 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
       });
       setFiles((prev) => {
         const used = new Set<string>();
-        const newJobs = state.jobs.filter((j) => j.status === "queued");
+        const newJobs = state.jobs.filter((j) => j.status === 'queued');
         return prev.map((file) => {
-          if (file.status !== "pending" || file.queued) return file;
+          if (file.status !== 'pending' || file.queued) return file;
           const job = newJobs.find(
             (j) => j.inputPath === file.path && !used.has(j.id),
           );
@@ -326,12 +331,12 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
         });
       });
       await ensureListeners();
-      await invoke("start_queue");
-      addLog("info", `Processing ${paths.length} file(s)...`);
+      await invoke('start_queue');
+      addLog('info', `Processing ${paths.length} file(s)...`);
     } catch (err) {
       const message = (err as { message?: string })?.message || String(err);
       toast.error(`Failed to start processing: ${message}`);
-      addLog("error", `Start failed: ${message}`);
+      addLog('error', `Start failed: ${message}`);
     } finally {
       setStarting(false);
     }
@@ -339,24 +344,24 @@ export function useQueue(addLog: (level: LogEntry["level"], message: string) => 
 
   const handleStop = useCallback(async () => {
     try {
-      await invoke("pause_queue");
-      addLog("info", "Queue paused");
+      await invoke('pause_queue');
+      addLog('info', 'Queue paused');
     } catch {
-      toast.error("Unable to cancel queue");
+      toast.error('Unable to cancel queue');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [addLog]);
 
   const handleClearHistory = useCallback(async () => {
     try {
-      await invoke("clear_history");
+      await invoke('clear_history');
       setHistory([]);
-      addLog("info", "History cleared");
+      addLog('info', 'History cleared');
     } catch {
-      toast.error("Unable to clear history");
+      toast.error('Unable to clear history');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [addLog]);
 
   const handleToggleHistory = useCallback(() => {
     setShowHistory((prev) => !prev);

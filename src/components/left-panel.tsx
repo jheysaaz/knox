@@ -1,9 +1,12 @@
-import { FileDropZone } from "@/components/file-dropzone";
-import { OutputDirectory } from "@/components/output-directory";
-import { AdvancedOptions, type ProfileValues } from "@/components/advanced-options";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import type { FileItem } from "@/types";
+import {
+  AdvancedOptions,
+  type ProfileValues,
+} from '@/components/advanced-options';
+import { FileDropZone } from '@/components/file-dropzone';
+import { OutputDirectory } from '@/components/output-directory';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
+import type { FileItem } from '@/types';
 
 interface LeftPanelProps {
   onFilesAdded: (files: FileItem[]) => void;
@@ -42,9 +45,9 @@ function LeftPanel({
             <Spinner /> Starting…
           </span>
         ) : isRunning ? (
-          "Add to Queue"
+          'Add to Queue'
         ) : (
-          "Start OCR Processing"
+          'Start OCR Processing'
         )}
       </Button>
     </div>

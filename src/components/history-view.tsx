@@ -1,14 +1,8 @@
-import {
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  Ban,
-  Trash2,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { HistoryEntry } from "@/types";
+import { AlertCircle, Ban, CheckCircle2, Clock, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
+import type { HistoryEntry } from '@/types';
 
 interface HistoryViewProps {
   entries: HistoryEntry[];
@@ -27,37 +21,37 @@ function formatDuration(ms: number): string {
 function formatTimestamp(unixS: number): string {
   const d = new Date(unixS * 1000);
   return d.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
 }
 
 function fileName(path: string): string {
-  const parts = path.replace(/\\/g, "/").split("/");
+  const parts = path.replace(/\\/g, '/').split('/');
   return parts[parts.length - 1] || path;
 }
 
 export function HistoryView({ entries, onClear }: HistoryViewProps) {
-  const statusIcon = (status: HistoryEntry["status"]) => {
+  const statusIcon = (status: HistoryEntry['status']) => {
     switch (status) {
-      case "completed":
+      case 'completed':
         return <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />;
-      case "failed":
+      case 'failed':
         return <AlertCircle className="h-4 w-4 text-destructive shrink-0" />;
-      case "cancelled":
+      case 'cancelled':
         return <Ban className="h-4 w-4 text-amber-500 shrink-0" />;
     }
   };
 
-  const statusLabel = (status: HistoryEntry["status"]) => {
+  const statusLabel = (status: HistoryEntry['status']) => {
     switch (status) {
-      case "completed":
-        return "Completed";
-      case "failed":
-        return "Failed";
-      case "cancelled":
-        return "Cancelled";
+      case 'completed':
+        return 'Completed';
+      case 'failed':
+        return 'Failed';
+      case 'cancelled':
+        return 'Cancelled';
     }
   };
 
@@ -91,12 +85,12 @@ export function HistoryView({ entries, onClear }: HistoryViewProps) {
               <div
                 key={entry.id}
                 className={cn(
-                  "flex items-start gap-3 rounded-md border px-3 py-2",
-                  entry.status === "failed"
-                    ? "border-destructive/50 bg-destructive/5"
-                    : entry.status === "cancelled"
-                      ? "border-amber-500/50 bg-amber-500/5"
-                      : "border-border bg-card",
+                  'flex items-start gap-3 rounded-md border px-3 py-2',
+                  entry.status === 'failed'
+                    ? 'border-destructive/50 bg-destructive/5'
+                    : entry.status === 'cancelled'
+                      ? 'border-amber-500/50 bg-amber-500/5'
+                      : 'border-border bg-card',
                 )}
               >
                 {statusIcon(entry.status)}
@@ -107,10 +101,10 @@ export function HistoryView({ entries, onClear }: HistoryViewProps) {
                   <div className="flex items-center gap-2 mt-0.5">
                     <span
                       className={cn(
-                        "text-xs",
-                        entry.status === "completed" && "text-green-500",
-                        entry.status === "failed" && "text-destructive",
-                        entry.status === "cancelled" && "text-amber-500",
+                        'text-xs',
+                        entry.status === 'completed' && 'text-green-500',
+                        entry.status === 'failed' && 'text-destructive',
+                        entry.status === 'cancelled' && 'text-amber-500',
                       )}
                     >
                       {statusLabel(entry.status)}

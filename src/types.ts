@@ -4,21 +4,21 @@ export interface FileItem {
   path: string;
   name: string;
   size: number;
-  status: "pending" | "processing" | "complete" | "error" | "paused";
+  status: 'pending' | 'processing' | 'complete' | 'error' | 'paused';
   progress?: number;
   queued?: boolean;
 }
 
 /** Binarization algorithm for converting grayscale to black/white. */
-export type BinarizationMode = "otsu" | "bradley-roth" | "fixed";
+export type BinarizationMode = 'otsu' | 'bradley-roth' | 'fixed';
 /** Deskew correction strategy. */
-export type DeskewMode = "radon" | "hough" | "disabled";
+export type DeskewMode = 'radon' | 'hough' | 'disabled';
 /** How to handle pages that already contain text. */
-export type ExistingTextMode = "skip" | "rasterize";
+export type ExistingTextMode = 'skip' | 'rasterize';
 /** Tesseract page segmentation mode. */
-export type PageSegMode = "auto" | "block" | "column" | "sparse";
+export type PageSegMode = 'auto' | 'block' | 'column' | 'sparse';
 /** Compression codec for output image streams. */
-export type CompressionMode = "ccitt" | "flate";
+export type CompressionMode = 'ccitt' | 'flate';
 
 /** Full set of OCR pipeline options passed from the UI to the Rust backend. */
 export interface OcrSettings {
@@ -39,7 +39,7 @@ export interface OcrSettings {
 export interface LogEntry {
   id: string;
   timestamp: Date;
-  level: "info" | "warn" | "error";
+  level: 'info' | 'warn' | 'error';
   message: string;
 }
 
@@ -48,7 +48,7 @@ export interface HistoryEntry {
   id: string;
   inputPath: string;
   outputPath: string;
-  status: "completed" | "failed" | "cancelled";
+  status: 'completed' | 'failed' | 'cancelled';
   startedAt: number;
   finishedAt: number;
   durationMs: number;

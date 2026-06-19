@@ -1,35 +1,35 @@
-import "@testing-library/jest-dom/vitest";
+import '@testing-library/jest-dom/vitest';
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-vi.mock("@tauri-apps/api/core", () => ({
+vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/api/event", () => ({
+vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
+vi.mock('@tauri-apps/plugin-dialog', () => ({
   open: vi.fn(),
   save: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/api/window", () => ({
+vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn(() => ({
     onDragDropEvent: vi.fn(() => Promise.resolve(() => {})),
   })),
 }));
 
-Object.defineProperty(globalThis, "crypto", {
+Object.defineProperty(globalThis, 'crypto', {
   value: {
-    randomUUID: () => "00000000-0000-0000-0000-000000000000",
+    randomUUID: () => '00000000-0000-0000-0000-000000000000',
   },
 });
 
-Object.defineProperty(navigator, "hardwareConcurrency", {
+Object.defineProperty(navigator, 'hardwareConcurrency', {
   value: 8,
   configurable: true,
 });
@@ -50,11 +50,11 @@ const localStorageMock = (() => {
   };
 })();
 
-Object.defineProperty(window, "localStorage", {
+Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
 });
 
-Object.defineProperty(window, "matchMedia", {
+Object.defineProperty(window, 'matchMedia', {
   value: vi.fn().mockImplementation((query: string) => ({
     matches: false,
     media: query,

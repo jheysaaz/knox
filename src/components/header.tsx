@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { Sun, Moon, Settings, Bug, History } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Bug, History, Moon, Settings, Sun } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 
 /** Header component with greeting, theme toggle, and activity panel toggle. */
 interface HeaderProps {
@@ -20,19 +20,19 @@ export function Header({
   onToggleHistory,
 }: HeaderProps) {
   const [isDark, setIsDark] = useState(() => {
-    const stored = localStorage.getItem("theme");
-    if (stored) return stored === "dark";
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const stored = localStorage.getItem('theme');
+    if (stored) return stored === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
   useEffect(() => {
     const root = document.documentElement;
     if (isDark) {
-      root.classList.add("dark");
-      localStorage.setItem("theme", "dark");
+      root.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
     } else {
-      root.classList.remove("dark");
-      localStorage.setItem("theme", "light");
+      root.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
     }
   }, [isDark]);
 
@@ -52,7 +52,7 @@ export function Header({
             variant="ghost"
             size="icon"
             onClick={onToggleHistory}
-            title={showHistory ? "Hide history" : "Show history"}
+            title={showHistory ? 'Hide history' : 'Show history'}
           >
             <History className="h-5 w-5" />
           </Button>
@@ -60,7 +60,7 @@ export function Header({
             variant="ghost"
             size="icon"
             onClick={onToggleActivity}
-            title={showActivity ? "Hide activity" : "Show activity"}
+            title={showActivity ? 'Hide activity' : 'Show activity'}
           >
             <Bug className="h-5 w-5" />
           </Button>

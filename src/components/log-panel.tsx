@@ -1,11 +1,11 @@
-import { useRef, useCallback, useEffect } from "react";
-import { cn } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
-import { save } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
-import { type LogEntry } from "@/types";
+import { invoke } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/plugin-dialog';
+import { Download } from 'lucide-react';
+import { useCallback, useEffect, useRef } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
+import { type LogEntry } from '@/types';
 
 /** Displays session activity logs with save-to-file support. */
 interface LogPanelProps {
@@ -20,31 +20,31 @@ export function LogPanel({ logs }: LogPanelProps) {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [logs]);
+  }, []);
 
-  const levelColors: Record<LogEntry["level"], string> = {
-    info: "text-blue-500",
-    warn: "text-yellow-600",
-    error: "text-destructive",
+  const levelColors: Record<LogEntry['level'], string> = {
+    info: 'text-blue-500',
+    warn: 'text-yellow-600',
+    error: 'text-destructive',
   };
 
-  const levelLabel: Record<LogEntry["level"], string> = {
-    info: "INFO",
-    warn: "WARN",
-    error: "ERROR",
+  const levelLabel: Record<LogEntry['level'], string> = {
+    info: 'INFO',
+    warn: 'WARN',
+    error: 'ERROR',
   };
 
   const formatTime = (date: Date) => {
-    const h = date.getHours().toString().padStart(2, "0");
-    const m = date.getMinutes().toString().padStart(2, "0");
-    const s = date.getSeconds().toString().padStart(2, "0");
+    const h = date.getHours().toString().padStart(2, '0');
+    const m = date.getMinutes().toString().padStart(2, '0');
+    const s = date.getSeconds().toString().padStart(2, '0');
     return `${h}:${m}:${s}`;
   };
 
   const handleSave = useCallback(async () => {
     const path = await save({
-      filters: [{ name: "Log", extensions: ["log"] }],
-      defaultPath: "session.log",
+      filters: [{ name: 'Log', extensions: ['log'] }],
+      defaultPath: 'session.log',
     });
     if (!path) return;
 
@@ -52,14 +52,14 @@ export function LogPanel({ logs }: LogPanelProps) {
       (log) =>
         `[${formatTime(log.timestamp)}] [${levelLabel[log.level].padEnd(5)}] ${log.message}`,
     );
-    const content = lines.join("\n") + "\n";
+    const content = `${lines.join('\n')}\n`;
 
     try {
-      await invoke("write_log_file", { path, content });
+      await invoke('write_log_file', { path, content });
     } catch {
       // silently fail — could add a toast system later
     }
-  }, [logs]);
+  }, [logs, levelLabel, formatTime]);
 
   return (
     <Card size="sm" className="overflow-hidden flex flex-col h-full">
@@ -91,7 +91,7 @@ export function LogPanel({ logs }: LogPanelProps) {
                 </span>
                 <span
                   className={cn(
-                    "float-left font-semibold",
+                    'float-left font-semibold',
                     levelColors[log.level],
                   )}
                 >

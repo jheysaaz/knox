@@ -1,12 +1,12 @@
-import { useState } from "react";
-import type { LogEntry } from "@/types";
+import { useState } from 'react';
+import type { LogEntry } from '@/types';
 
 const MAX_LOG_ENTRIES = 500;
 
 export function useLogger() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
-  const addLog = (level: LogEntry["level"], message: string) => {
+  const addLog = (level: LogEntry['level'], message: string) => {
     setLogs((prev) => {
       const next = [
         ...prev,

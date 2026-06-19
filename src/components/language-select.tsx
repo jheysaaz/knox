@@ -1,91 +1,91 @@
-import { useState, useRef, useEffect, useMemo } from "react";
-import { cn } from "@/lib/utils";
-import { ChevronDown, X, Search, Check } from "lucide-react";
+import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
 
 const LANGUAGES: { code: string; name: string }[] = [
-  { code: "afr", name: "Afrikaans" },
-  { code: "amh", name: "Amharic" },
-  { code: "ara", name: "Arabic" },
-  { code: "aze", name: "Azerbaijani" },
-  { code: "bel", name: "Belarusian" },
-  { code: "ben", name: "Bengali" },
-  { code: "bul", name: "Bulgarian" },
-  { code: "cat", name: "Catalan" },
-  { code: "ces", name: "Czech" },
-  { code: "chi_sim", name: "Chinese (Simplified)" },
-  { code: "chi_tra", name: "Chinese (Traditional)" },
-  { code: "cjk", name: "CJK (Chinese/Japanese/Korean)" },
-  { code: "dan", name: "Danish" },
-  { code: "deu", name: "German" },
-  { code: "ell", name: "Greek" },
-  { code: "eng", name: "English" },
-  { code: "epo", name: "Esperanto" },
-  { code: "est", name: "Estonian" },
-  { code: "eus", name: "Basque" },
-  { code: "fas", name: "Persian" },
-  { code: "fin", name: "Finnish" },
-  { code: "fra", name: "French" },
-  { code: "glg", name: "Galician" },
-  { code: "grc", name: "Ancient Greek" },
-  { code: "guj", name: "Gujarati" },
-  { code: "hat", name: "Haitian" },
-  { code: "heb", name: "Hebrew" },
-  { code: "hin", name: "Hindi" },
-  { code: "hrv", name: "Croatian" },
-  { code: "hun", name: "Hungarian" },
-  { code: "hye", name: "Armenian" },
-  { code: "ind", name: "Indonesian" },
-  { code: "isl", name: "Icelandic" },
-  { code: "ita", name: "Italian" },
-  { code: "jpn", name: "Japanese" },
-  { code: "kan", name: "Kannada" },
-  { code: "kat", name: "Georgian" },
-  { code: "kaz", name: "Kazakh" },
-  { code: "khm", name: "Khmer" },
-  { code: "kir", name: "Kyrgyz" },
-  { code: "kor", name: "Korean" },
-  { code: "lao", name: "Lao" },
-  { code: "lat", name: "Latin" },
-  { code: "lav", name: "Latvian" },
-  { code: "lit", name: "Lithuanian" },
-  { code: "mar", name: "Marathi" },
-  { code: "mkd", name: "Macedonian" },
-  { code: "mlt", name: "Maltese" },
-  { code: "msa", name: "Malay" },
-  { code: "mya", name: "Burmese" },
-  { code: "nep", name: "Nepali" },
-  { code: "nld", name: "Dutch" },
-  { code: "nor", name: "Norwegian" },
-  { code: "ori", name: "Odia" },
-  { code: "pan", name: "Punjabi" },
-  { code: "pol", name: "Polish" },
-  { code: "por", name: "Portuguese" },
-  { code: "pus", name: "Pashto" },
-  { code: "ron", name: "Romanian" },
-  { code: "rus", name: "Russian" },
-  { code: "san", name: "Sanskrit" },
-  { code: "sin", name: "Sinhala" },
-  { code: "slk", name: "Slovak" },
-  { code: "slv", name: "Slovenian" },
-  { code: "spa", name: "Spanish" },
-  { code: "sqi", name: "Albanian" },
-  { code: "srp", name: "Serbian" },
-  { code: "swa", name: "Swahili" },
-  { code: "swe", name: "Swedish" },
-  { code: "tam", name: "Tamil" },
-  { code: "tel", name: "Telugu" },
-  { code: "tgk", name: "Tajik" },
-  { code: "tgl", name: "Tagalog" },
-  { code: "tha", name: "Thai" },
-  { code: "tir", name: "Tigrinya" },
-  { code: "tur", name: "Turkish" },
-  { code: "uig", name: "Uyghur" },
-  { code: "ukr", name: "Ukrainian" },
-  { code: "urd", name: "Urdu" },
-  { code: "uzb", name: "Uzbek" },
-  { code: "vie", name: "Vietnamese" },
-  { code: "yid", name: "Yiddish" },
-  { code: "yor", name: "Yoruba" },
+  { code: 'afr', name: 'Afrikaans' },
+  { code: 'amh', name: 'Amharic' },
+  { code: 'ara', name: 'Arabic' },
+  { code: 'aze', name: 'Azerbaijani' },
+  { code: 'bel', name: 'Belarusian' },
+  { code: 'ben', name: 'Bengali' },
+  { code: 'bul', name: 'Bulgarian' },
+  { code: 'cat', name: 'Catalan' },
+  { code: 'ces', name: 'Czech' },
+  { code: 'chi_sim', name: 'Chinese (Simplified)' },
+  { code: 'chi_tra', name: 'Chinese (Traditional)' },
+  { code: 'cjk', name: 'CJK (Chinese/Japanese/Korean)' },
+  { code: 'dan', name: 'Danish' },
+  { code: 'deu', name: 'German' },
+  { code: 'ell', name: 'Greek' },
+  { code: 'eng', name: 'English' },
+  { code: 'epo', name: 'Esperanto' },
+  { code: 'est', name: 'Estonian' },
+  { code: 'eus', name: 'Basque' },
+  { code: 'fas', name: 'Persian' },
+  { code: 'fin', name: 'Finnish' },
+  { code: 'fra', name: 'French' },
+  { code: 'glg', name: 'Galician' },
+  { code: 'grc', name: 'Ancient Greek' },
+  { code: 'guj', name: 'Gujarati' },
+  { code: 'hat', name: 'Haitian' },
+  { code: 'heb', name: 'Hebrew' },
+  { code: 'hin', name: 'Hindi' },
+  { code: 'hrv', name: 'Croatian' },
+  { code: 'hun', name: 'Hungarian' },
+  { code: 'hye', name: 'Armenian' },
+  { code: 'ind', name: 'Indonesian' },
+  { code: 'isl', name: 'Icelandic' },
+  { code: 'ita', name: 'Italian' },
+  { code: 'jpn', name: 'Japanese' },
+  { code: 'kan', name: 'Kannada' },
+  { code: 'kat', name: 'Georgian' },
+  { code: 'kaz', name: 'Kazakh' },
+  { code: 'khm', name: 'Khmer' },
+  { code: 'kir', name: 'Kyrgyz' },
+  { code: 'kor', name: 'Korean' },
+  { code: 'lao', name: 'Lao' },
+  { code: 'lat', name: 'Latin' },
+  { code: 'lav', name: 'Latvian' },
+  { code: 'lit', name: 'Lithuanian' },
+  { code: 'mar', name: 'Marathi' },
+  { code: 'mkd', name: 'Macedonian' },
+  { code: 'mlt', name: 'Maltese' },
+  { code: 'msa', name: 'Malay' },
+  { code: 'mya', name: 'Burmese' },
+  { code: 'nep', name: 'Nepali' },
+  { code: 'nld', name: 'Dutch' },
+  { code: 'nor', name: 'Norwegian' },
+  { code: 'ori', name: 'Odia' },
+  { code: 'pan', name: 'Punjabi' },
+  { code: 'pol', name: 'Polish' },
+  { code: 'por', name: 'Portuguese' },
+  { code: 'pus', name: 'Pashto' },
+  { code: 'ron', name: 'Romanian' },
+  { code: 'rus', name: 'Russian' },
+  { code: 'san', name: 'Sanskrit' },
+  { code: 'sin', name: 'Sinhala' },
+  { code: 'slk', name: 'Slovak' },
+  { code: 'slv', name: 'Slovenian' },
+  { code: 'spa', name: 'Spanish' },
+  { code: 'sqi', name: 'Albanian' },
+  { code: 'srp', name: 'Serbian' },
+  { code: 'swa', name: 'Swahili' },
+  { code: 'swe', name: 'Swedish' },
+  { code: 'tam', name: 'Tamil' },
+  { code: 'tel', name: 'Telugu' },
+  { code: 'tgk', name: 'Tajik' },
+  { code: 'tgl', name: 'Tagalog' },
+  { code: 'tha', name: 'Thai' },
+  { code: 'tir', name: 'Tigrinya' },
+  { code: 'tur', name: 'Turkish' },
+  { code: 'uig', name: 'Uyghur' },
+  { code: 'ukr', name: 'Ukrainian' },
+  { code: 'urd', name: 'Urdu' },
+  { code: 'uzb', name: 'Uzbek' },
+  { code: 'vie', name: 'Vietnamese' },
+  { code: 'yid', name: 'Yiddish' },
+  { code: 'yor', name: 'Yoruba' },
 ];
 
 interface LanguageSelectProps {
@@ -95,7 +95,7 @@ interface LanguageSelectProps {
 
 export function LanguageSelect({ value, onChange }: LanguageSelectProps) {
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -105,11 +105,11 @@ export function LanguageSelect({ value, onChange }: LanguageSelectProps) {
         !containerRef.current.contains(e.target as Node)
       ) {
         setOpen(false);
-        setSearch("");
+        setSearch('');
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const selectedNames = useMemo(
@@ -145,19 +145,19 @@ export function LanguageSelect({ value, onChange }: LanguageSelectProps) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none hover:bg-accent/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
-          open && "border-ring",
+          'flex h-8 w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none hover:bg-accent/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50',
+          open && 'border-ring',
         )}
       >
         <span className="truncate text-left text-muted-foreground">
           {selectedNames.length === 0
-            ? "Select languages"
+            ? 'Select languages'
             : `${selectedNames.length} selected`}
         </span>
         <ChevronDown
           className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180",
+            'size-4 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-180',
           )}
         />
       </button>
@@ -201,7 +201,6 @@ export function LanguageSelect({ value, onChange }: LanguageSelectProps) {
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search languages..."
               className="h-8 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              autoFocus
             />
           </div>
           <div className="overflow-y-auto max-h-56">
@@ -218,16 +217,16 @@ export function LanguageSelect({ value, onChange }: LanguageSelectProps) {
                     type="button"
                     onClick={() => toggle(lang.code)}
                     className={cn(
-                      "flex w-full items-center gap-2 px-2.5 py-1.5 text-sm text-left outline-none hover:bg-accent focus-visible:bg-accent",
-                      selected && "bg-accent/50",
+                      'flex w-full items-center gap-2 px-2.5 py-1.5 text-sm text-left outline-none hover:bg-accent focus-visible:bg-accent',
+                      selected && 'bg-accent/50',
                     )}
                   >
                     <span
                       className={cn(
-                        "flex size-4 shrink-0 items-center justify-center rounded-sm border",
+                        'flex size-4 shrink-0 items-center justify-center rounded-sm border',
                         selected
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-input",
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-input',
                       )}
                     >
                       {selected && <Check className="size-3" />}

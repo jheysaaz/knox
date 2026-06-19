@@ -1,31 +1,31 @@
-import { describe, it, expect } from "vitest";
-import type { FileItem, LogEntry, OcrSettings } from "@/types";
+import { describe, expect, it } from 'vitest';
+import type { FileItem, LogEntry, OcrSettings } from '@/types';
 
-describe("types", () => {
-  it("FileItem can be constructed", () => {
+describe('types', () => {
+  it('FileItem can be constructed', () => {
     const file: FileItem = {
-      id: "1",
-      path: "/path/to/file.pdf",
-      name: "file.pdf",
+      id: '1',
+      path: '/path/to/file.pdf',
+      name: 'file.pdf',
       size: 1024,
-      status: "pending",
+      status: 'pending',
     };
-    expect(file.status).toBe("pending");
+    expect(file.status).toBe('pending');
   });
 
-  it("FileItem supports all statuses", () => {
-    const statuses: FileItem["status"][] = [
-      "pending",
-      "processing",
-      "complete",
-      "error",
-      "paused",
+  it('FileItem supports all statuses', () => {
+    const statuses: FileItem['status'][] = [
+      'pending',
+      'processing',
+      'complete',
+      'error',
+      'paused',
     ];
     for (const s of statuses) {
       const file: FileItem = {
-        id: "1",
-        path: "/p.pdf",
-        name: "p.pdf",
+        id: '1',
+        path: '/p.pdf',
+        name: 'p.pdf',
         size: 0,
         status: s,
       };
@@ -33,29 +33,29 @@ describe("types", () => {
     }
   });
 
-  it("LogEntry can be constructed", () => {
+  it('LogEntry can be constructed', () => {
     const log: LogEntry = {
-      id: "1",
+      id: '1',
       timestamp: new Date(),
-      level: "info",
-      message: "test",
+      level: 'info',
+      message: 'test',
     };
-    expect(log.level).toBe("info");
+    expect(log.level).toBe('info');
   });
 
-  it("OcrSettings can be constructed", () => {
+  it('OcrSettings can be constructed', () => {
     const settings: OcrSettings = {
       memoryPages: 30,
-      binarization: "otsu",
+      binarization: 'otsu',
       fixedThreshold: 128,
-      deskew: "radon",
+      deskew: 'radon',
       denoiseLevel: 2,
-      existingText: "skip",
-      psm: "auto",
-      compression: "ccitt",
-      resolution: "300",
+      existingText: 'skip',
+      psm: 'auto',
+      compression: 'ccitt',
+      resolution: '300',
       archiveEnforcement: false,
-      languages: "eng",
+      languages: 'eng',
     };
     expect(settings.memoryPages).toBe(30);
   });
