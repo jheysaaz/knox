@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "gen:types": "cargo build --features typescript --no-default-features --manifest-path src-tauri/Cargo.toml",
     "build": "biome check src/ && tsc && vite build",
+    "prebuild": "pnpm gen:types",
     "preview": "vite preview",
     "tauri": "tauri",
     "lint": "biome check src/",
