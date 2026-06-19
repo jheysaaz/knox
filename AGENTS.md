@@ -48,20 +48,25 @@ pnpm tauri build       # Production build
 - Integration tests in `tests/` access `ocr_engine` via `knox_lib::ocr_engine::*` (module is `pub`)
 
 ## Key Files
+
 | Path | Purpose |
 |---|---|
 | `src/App.tsx` | Main component: state, event wiring, Tauri API calls |
-| `src/types.ts` | Shared TypeScript types |
+| `src/types.ts` | Shared TypeScript types + re-exports from `types-gen/` |
+| `src/components/advanced-options.tsx` | `ProfileValues` form model (frontend-only, maps to Rust `OcrOptions` via `useQueue.ts`) |
 | `src-tauri/src/lib.rs` | All Tauri commands (12 total) |
+| `src-tauri/src/commands.rs` | Helper functions and job execution logic |
 | `src-tauri/src/security.rs` | Path validation |
 | `src-tauri/src/ocr_engine/` | Full OCR pipeline (11 modules) |
 | `src-tauri/src/types-gen/` | Auto-generated TypeScript types from ts-rs |
 | `src-tauri/tests/e2e.rs` | End-to-end OCR integration test (gated by `integration` + `ocr` features) |
 | `docs/spec.md` | Product spec |
-| `docs/architecture.md` | Architecture overview |
+| `docs/architecture.md` | Architecture, commands, events, data flow |
+| `docs/state-of-knox.md` | Project audit |
 | `docs/specs/` | Granular component/module specs |
 
 ## Commands Internals — Helper Functions & Types (`commands.rs`)
+
 | Item | Signature | Purpose |
 |---|---|---|
 | `lock_or_err!` | `($lock, $target:literal)` | Lock guard or `Err(CommandError::queue(...))` |
@@ -74,29 +79,8 @@ pnpm tauri build       # Production build
 | `run_job` | `async (app, state, history, index, options, processing, cancelled)` | Execute one job: lock→emit→engine→finalize→push_history |
 
 ## Tauri Command API
-| Command | Params | Returns | Description |
-|---|---|---|---|
-| `enqueue` | `payload: EnqueuePayload` | `QueueState` | Add files to processing queue |
-| `start_queue` | — | `()` | Begin processing queued jobs (spawns `run_job`) |
-| `pause_queue` | — | `()` | Pause all processing |
-| `remove_job` | `job_id: String` | `QueueState` | Remove a queued job |
-| `clear_queue` | — | `QueueState` | Clear all jobs |
-| `get_status` | — | `QueueState` | Current queue state |
-| `get_history` | — | `Vec<HistoryEntry>` | Job history |
-| `clear_history` | — | `()` | Clear history |
-| `write_log_file` | `path, content: String` | `()` | Write log to disk |
-| `get_file_metadata` | `path: String` | `FileMetadata` | Get file size |
-| `log_window_shown` | — | `()` | Log TTI measurement on first paint |
-| `ensure_language_packs` | `languages: Vec<String>` | `LanguagePackResult` | Download missing Tesseract traineddata |
 
-## Tauri Events
-| Event | Payload | Fires |
-|---|---|---|
-| `pipeline-progress` | `PipelineProgress` | Per-page progress during OCR |
-| `queueState` | `QueueState` | Queue start/stop/empty |
-| `jobProgress` | `Job` | Job status change |
-| `jobFinished` | `Job` | Job completed/failed/cancelled |
-| `historyUpdated` | `Vec<HistoryEntry>` | History modified |
+See `docs/architecture.md` for the full command and event reference.
 
 ## Performance Targets
 - **TTI (Time to Interactive)**: Must be under 3 seconds (measured by `knox::startup` log `elapsed_ms`)
@@ -113,13 +97,6 @@ For every new feature or change, follow this order:
 3. **Code** — Implement *just enough* to make tests pass (Red-Green-Refactor). Stick to existing patterns — don't add new frameworks or dependencies.
 4. **Docs** — Document *after* the implementation settles. Add `///` / `/** */` doc comments on all new public items. Update `AGENTS.md` if commands, events, or architecture changed.
 5. **Verify** — Run all three gates: `pnpm test && cargo test && pnpm build`. All must pass. Fix warnings.
-
-## Key Files (updated)
-| Path | Purpose |
-|---|---|
-| `src/types.ts` | Shared TypeScript types + re-exports from `types-gen/` |
-| `src/types-gen/` | Auto-generated TypeScript types from Rust via ts-rs (`cargo test --features typescript -- export_bindings`) |
-| `src/components/advanced-options.tsx` | `ProfileValues` form model (frontend-only, maps to Rust `OcrOptions` via `useQueue.ts`) |
 
 ## ts-rs Integration
 - Run `cargo test --features typescript --no-default-features -- export_bindings` to regenerate `.ts` files in `src/types-gen/`

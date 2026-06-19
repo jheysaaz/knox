@@ -79,7 +79,7 @@ When enabled:
 - No network calls.
 - Strict path validation and no unintended overwrites.
 - Use OS temp directories and always clean up temp artifacts.
-- Run sidecar (if any) with minimal environment.
+- Process files in isolated temp directories.
 - Sanitize logs and limit export locations to user-selected output folder.
 
 ## Performance Requirements
@@ -102,5 +102,6 @@ When enabled:
 
 ## Licensing
 
-- GPL for Tesseract/Leptonica linkage.
+- Knox code is MIT (see LICENSE).
+- Tesseract is Apache 2.0, Leptonica is BSD 2-Clause.
 - Include AGPL notices for any AGPL dependencies.

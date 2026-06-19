@@ -34,26 +34,29 @@ UI (React 19 + Tailwind + shadcn/ui)
 pnpm install           # Install JS deps
 pnpm tauri dev         # Dev server + Tauri window
 pnpm build             # TypeScript check + Vite build
-pnpm test              # Vitest frontend tests
-cargo test             # Rust tests (in src-tauri/)
+pnpm test              # Vitest frontend tests (50+ tests)
+cargo test             # Rust tests in src-tauri/ (75+ tests)
 pnpm tauri build       # Production build
 ```
-
-## Testing
-
-Frontend: `pnpm test` (Vitest, 43 tests)
-Backend:  `cargo test` (40 tests across all modules)
 
 ## Documentation
 
 - `docs/spec.md` — Product spec
-- `docs/architecture.md` — Architecture overview
-- `docs/specs/` — Granular component/module specs (17 files)
+- `docs/architecture.md` — Architecture, commands, events, data flow
+- `docs/BUILDING_STATIC_LIBS.md` — Building static Tesseract/Leptonica
+- `docs/state-of-knox.md` — Project audit
+- `docs/specs/` — Granular component/module specs
+- `docs/CHANGELOG.md` — Release history
+- `CONTRIBUTING.md` — Setup guide and contribution process
 - `AGENTS.md` — AI agent context
 
 ## Supported Platforms
 
-- macOS 12+
+- macOS 12+ (Apple Silicon)
 - Windows 10+
 
 Offline-only; no cloud dependencies.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
