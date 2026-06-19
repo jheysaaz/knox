@@ -34,7 +34,6 @@ jobs:
       - name: Install system deps (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          brew update
           brew install tesseract leptonica pkg-config
           pkg-config --modversion tesseract
           pkg-config --modversion lept
@@ -80,15 +79,22 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: sccache (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: sccache
         uses: mozilla-actions/sccache-action@v0.0.10
 
       # ── Frontend ─────────────────────────────────────────────────────────
       - run: pnpm install --frozen-lockfile
 
       # ── Tessdata bundle ─────────────────────────────────────────────────
+      - name: Cache tessdata
+        id: cache-tessdata
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/tessdata
+          key: tessdata-${{ runner.os }}
+
       - name: Download tessdata
+        if: steps.cache-tessdata.outputs.cache-hit != 'true'
         shell: bash
         run: |
           mkdir -p src-tauri/tessdata
@@ -98,7 +104,15 @@ jobs:
             https://github.com/tesseract-ocr/tessdata_fast/raw/main/spa.traineddata
 
       # ── Pdfium bundle ──────────────────────────────────────────────────
+      - name: Cache pdfium
+        id: cache-pdfium
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/pdfium
+          key: pdfium-${{ runner.os }}
+
       - name: Download pdfium library
+        if: steps.cache-pdfium.outputs.cache-hit != 'true'
         shell: bash
         run: bash scripts/download-pdfium.sh latest
 
@@ -107,21 +121,22 @@ jobs:
         shell: bash
         run: codesign -f -s - src-tauri/pdfium/libpdfium.dylib 2>/dev/null || true
 
-      # ── Checks ─────────────────────────────────────────────────────────
-      - name: TypeScript check + Vite build
-        run: pnpm build
+      # ── Checks (frontend & backend in parallel) ───────────────────────
+      - name: Build, lint & test (frontend + backend parallel)
+        shell: bash
+        run: |
+          set -e
+          # Backend: format → clippy → tests
+          (
+            cd src-tauri
+            cargo fmt --check
+            cargo clippy --tests -- -D warnings
+            cargo test
+          ) &
+          BACKEND_PID=$!
 
-      - name: Frontend tests
-        run: pnpm test
+          # Frontend: build → tests
+          pnpm build && pnpm test
 
-      - name: Formatting
-        working-directory: src-tauri
-        run: cargo fmt --check
-
-      - name: Lint (deny warnings)
-        working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Backend tests
-        working-directory: src-tauri
-        run: cargo test
+          # Wait for backend, propagate its exit code
+          wait $BACKEND_PID
