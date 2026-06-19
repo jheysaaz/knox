@@ -7,7 +7,6 @@ use crate::ocr_engine::error::PipelineError;
 /// A single recognised word with its bounding box in image pixel coordinates
 /// (origin top-left).
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct WordBounds {
     pub text: String,
     pub left: i32,

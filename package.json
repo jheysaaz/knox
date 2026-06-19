@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "lint": "biome check src/",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "gen-icon": "tauri-liquid-icon --icon src-tauri/icons/KnoxIcon.icon --output src-tauri/resources"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
@@ -52,6 +53,7 @@
     "@vitejs/plugin-react": "^4.6.0",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.0",
+    "tauri-liquid-icon": "^1.1.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "^4.1.7"

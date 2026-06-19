@@ -37,11 +37,17 @@ const defaultSettings = {
   archiveEnforcement: false,
   languages: ['eng'],
   safeMode: false,
+  continueOnError: false,
 };
 
 describe('useQueue', () => {
   it("handleStart calls invoke('enqueue') with correct payload", async () => {
     vi.mocked(invoke)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        encrypted: false,
+        fileId: '/test.pdf',
+      })
       .mockResolvedValueOnce({
         downloaded: [],
         skipped: ['eng'],
@@ -76,7 +82,7 @@ describe('useQueue', () => {
     });
 
     expect(invoke).toHaveBeenNthCalledWith(
-      2,
+      4,
       'enqueue',
       expect.objectContaining({
         payload: expect.objectContaining({
@@ -85,7 +91,7 @@ describe('useQueue', () => {
         }),
       }),
     );
-    expect(invoke).toHaveBeenNthCalledWith(4, 'start_queue');
+    expect(invoke).toHaveBeenNthCalledWith(6, 'start_queue');
     expect(addLog).toHaveBeenCalledWith('info', 'Processing 1 file(s)...');
   });
 
@@ -106,6 +112,8 @@ describe('useQueue', () => {
     const { result } = renderHook(() => useQueue(addLog));
 
     vi.mocked(invoke)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce({
         downloaded: [],
         skipped: ['eng'],
@@ -156,6 +164,7 @@ describe('useQueue', () => {
     const { result } = renderHook(() => useQueue(addLog));
 
     vi.mocked(invoke)
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce({
         downloaded: [],
         skipped: ['eng'],
@@ -207,6 +216,7 @@ describe('useQueue', () => {
     const { result } = renderHook(() => useQueue(addLog));
 
     vi.mocked(invoke)
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce({
         downloaded: [],
         skipped: ['eng'],
@@ -258,6 +268,7 @@ describe('useQueue', () => {
     const { result } = renderHook(() => useQueue(addLog));
 
     vi.mocked(invoke)
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce({
         downloaded: [],
         skipped: ['eng'],
@@ -352,5 +363,172 @@ describe('useQueue', () => {
     expect(invoke).toHaveBeenCalledWith('remove_job', { job_id: '1' });
     expect(result.current.files).toHaveLength(0);
     expect(addLog).toHaveBeenCalledWith('info', 'Removed: test.pdf');
+  });
+
+  it('queueState event marks isRunning as true', async () => {
+    const addLog = vi.fn();
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({ downloaded: [], skipped: ['eng'], errors: {} })
+      .mockResolvedValueOnce({
+        jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
+        isRunning: false,
+      })
+      .mockResolvedValue([]);
+    const { result } = renderHook(() => useQueue(addLog));
+
+    act(() => {
+      result.current.handleFilesAdded([
+        {
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
+          size: 1024,
+          status: 'pending',
+        },
+      ]);
+    });
+    act(() => {
+      result.current.setOutputDir('/output');
+    });
+    await act(async () => {
+      await result.current.handleStart(defaultSettings);
+    });
+
+    expect(result.current.isRunning).toBe(false);
+
+    act(() => {
+      emitEvent('queueState', {
+        jobs: [{ id: '1', inputPath: '/test.pdf', status: 'running' }],
+        isRunning: true,
+      });
+    });
+
+    expect(result.current.isRunning).toBe(true);
+  });
+
+  it('queueState event marks isRunning as false on empty queue', async () => {
+    const addLog = vi.fn();
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({ downloaded: [], skipped: ['eng'], errors: {} })
+      .mockResolvedValueOnce({
+        jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
+        isRunning: true,
+      })
+      .mockResolvedValue([]);
+    const { result } = renderHook(() => useQueue(addLog));
+
+    act(() => {
+      result.current.handleFilesAdded([
+        {
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
+          size: 1024,
+          status: 'pending',
+        },
+      ]);
+    });
+    act(() => {
+      result.current.setOutputDir('/output');
+    });
+    await act(async () => {
+      await result.current.handleStart(defaultSettings);
+    });
+
+    act(() => {
+      emitEvent('queueState', { jobs: [], isRunning: false });
+    });
+
+    expect(result.current.isRunning).toBe(false);
+  });
+
+  it('queueState event removes stale queued files not in backend', async () => {
+    const addLog = vi.fn();
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({ downloaded: [], skipped: ['eng'], errors: {} })
+      .mockResolvedValueOnce({
+        jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
+        isRunning: true,
+      })
+      .mockResolvedValue([]);
+    const { result } = renderHook(() => useQueue(addLog));
+
+    act(() => {
+      result.current.handleFilesAdded([
+        {
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
+          size: 1024,
+          status: 'pending',
+        },
+      ]);
+    });
+    act(() => {
+      result.current.setOutputDir('/output');
+    });
+    await act(async () => {
+      await result.current.handleStart(defaultSettings);
+    });
+
+    expect(result.current.files).toHaveLength(1);
+
+    act(() => {
+      emitEvent('queueState', { jobs: [], isRunning: false });
+    });
+
+    expect(result.current.files).toHaveLength(0);
+  });
+
+  it('queueState event keeps non-queued files when backend is empty', async () => {
+    const addLog = vi.fn();
+    vi.mocked(invoke)
+      .mockResolvedValueOnce({ downloaded: [], skipped: ['eng'], errors: {} })
+      .mockResolvedValueOnce({
+        jobs: [{ id: '1', inputPath: '/test.pdf', status: 'queued' }],
+        isRunning: true,
+      })
+      .mockResolvedValue([]);
+    const { result } = renderHook(() => useQueue(addLog));
+
+    act(() => {
+      result.current.handleFilesAdded([
+        {
+          id: '1',
+          path: '/test.pdf',
+          name: 'test.pdf',
+          size: 1024,
+          status: 'pending',
+        },
+      ]);
+    });
+    act(() => {
+      result.current.setOutputDir('/output');
+    });
+    await act(async () => {
+      await result.current.handleStart(defaultSettings);
+    });
+
+    act(() => {
+      result.current.handleFilesAdded([
+        {
+          id: '2',
+          path: '/draft.pdf',
+          name: 'draft.pdf',
+          size: 1024,
+          status: 'pending',
+          queued: false,
+        },
+      ]);
+    });
+
+    expect(result.current.files).toHaveLength(2);
+
+    act(() => {
+      emitEvent('queueState', { jobs: [], isRunning: false });
+    });
+
+    expect(result.current.files).toHaveLength(1);
+    expect(result.current.files[0].id).toBe('2');
   });
 });

@@ -13,13 +13,11 @@ use crate::ocr_engine::types::{BinarizationMode, DeskewMode, OcrSettings};
 #[derive(Clone, Debug)]
 pub struct ProcessedImage {
     pub ocr_image: GrayImage,
-    #[allow(dead_code)]
     pub bitonal: Option<BitonalImage>,
 }
 
 /// A 1-bit-per-pixel image suitable for CCITT G4 encoding.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct BitonalImage {
     pub data: Vec<u8>,
     pub width: u32,
@@ -546,6 +544,8 @@ mod tests {
             compression: crate::ocr_engine::types::CompressionMode::Ccitt,
             resolution_dpi: 300,
             archive_enforcement: false,
+            continue_on_error: false,
+            password: None,
         }
     }
 

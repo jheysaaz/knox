@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { FileItem, LogEntry, OcrSettings } from '@/types';
+import type { ProfileValues } from '@/components/advanced-options';
+import type { FileItem, LogEntry } from '@/types';
 
 describe('types', () => {
   it('FileItem can be constructed', () => {
@@ -43,8 +44,8 @@ describe('types', () => {
     expect(log.level).toBe('info');
   });
 
-  it('OcrSettings can be constructed', () => {
-    const settings: OcrSettings = {
+  it('ProfileValues can be constructed', () => {
+    const settings: ProfileValues = {
       memoryPages: 30,
       binarization: 'otsu',
       fixedThreshold: 128,
@@ -55,7 +56,9 @@ describe('types', () => {
       compression: 'ccitt',
       resolution: '300',
       archiveEnforcement: false,
-      languages: 'eng',
+      safeMode: false,
+      languages: ['eng'],
+      continueOnError: false,
     };
     expect(settings.memoryPages).toBe(30);
   });

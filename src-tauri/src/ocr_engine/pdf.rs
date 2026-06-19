@@ -83,7 +83,9 @@ const MAX_PDF_SIZE: u64 = 512 * 1024 * 1024;
 
 /// Loads a PDF document from the given filesystem path.
 /// Rejects files larger than 512 MB to prevent OOM from decompression bombs.
-pub fn load_document(path: &Path) -> Result<Document, PipelineError> {
+/// Detects password-protected PDFs and returns `PipelineError::Encrypted` if
+/// the file is encrypted and `password` is `None` (or if the password is wrong).
+pub fn load_document(path: &Path, password: Option<&str>) -> Result<Document, PipelineError> {
     let metadata = std::fs::metadata(path).map_err(PipelineError::Io)?;
     if metadata.len() > MAX_PDF_SIZE {
         let msg = format!(
@@ -95,7 +97,35 @@ pub fn load_document(path: &Path) -> Result<Document, PipelineError> {
         return Err(PipelineError::PdfParse(msg));
     }
     tracing::info!(target: "knox::pdf", path = %path.display(), size = metadata.len(), "loading pdf");
-    let doc = Document::load(path).map_err(|e| PipelineError::PdfParse(e.to_string()))?;
+    let mut doc = match Document::load(path) {
+        Ok(doc) => doc,
+        Err(e) => {
+            let msg = e.to_string().to_lowercase();
+            if msg.contains("encrypt") || msg.contains("password") {
+                let hint = if password.is_some() {
+                    "password may be incorrect".to_string()
+                } else {
+                    "password required".to_string()
+                };
+                return Err(PipelineError::Encrypted(hint));
+            }
+            return Err(PipelineError::PdfParse(e.to_string()));
+        }
+    };
+
+    if doc.is_encrypted() {
+        match password {
+            Some(pwd) => {
+                doc.decrypt(pwd).map_err(|_| {
+                    PipelineError::Encrypted("password may be incorrect".to_string())
+                })?;
+            }
+            None => {
+                return Err(PipelineError::Encrypted("password required".to_string()));
+            }
+        }
+    }
+
     Ok(doc)
 }
 
@@ -261,7 +291,6 @@ pub fn extract_lopdf_page(
 /// Replaces image XObject streams in the document with the given compressed streams.
 /// Each page's first image stream is replaced using ownership transfer from the map
 /// (no cloning), so the caller should not reuse the map after this call.
-#[allow(dead_code)]
 pub fn replace_page_images(
     doc: &mut Document,
     mut replacements: BTreeMap<u32, Stream>,
@@ -607,7 +636,6 @@ fn format_pdf_float(v: f32) -> String {
     }
 }
 
-#[allow(dead_code)]
 fn resolve_dict<'a>(
     doc: &'a Document,
     obj: &'a Object,
@@ -691,7 +719,6 @@ pub fn encode_ccitt_g4(width: u32, height: u32, bitonal: Vec<u8>) -> Result<Stre
 }
 
 /// Encodes an 8-bit grayscale image as a FlateDecode-compressed PDF image stream.
-#[allow(dead_code)]
 pub fn encode_flate(width: u32, height: u32, data: Vec<u8>) -> Result<Stream, PipelineError> {
     use std::io::Write;
     let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
@@ -1102,7 +1129,7 @@ mod tests {
 
     #[test]
     fn load_document_nonexistent_fails() {
-        let result = load_document(Path::new("/nonexistent/path.pdf"));
+        let result = load_document(Path::new("/nonexistent/path.pdf"), None);
         assert!(result.is_err());
     }
 
@@ -1111,7 +1138,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("knox_test_empty.pdf");
         std::fs::write(&path, b"").unwrap();
-        let result = load_document(&path);
+        let result = load_document(&path, None);
         assert!(result.is_err());
         std::fs::remove_file(&path).unwrap();
     }
@@ -1121,7 +1148,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("knox_test_junk.pdf");
         std::fs::write(&path, b"not a pdf file at all").unwrap();
-        let result = load_document(&path);
+        let result = load_document(&path, None);
         assert!(result.is_err());
         std::fs::remove_file(&path).unwrap();
     }
@@ -1143,7 +1170,7 @@ mod tests {
         let dir = std::env::temp_dir();
         let path = dir.join("knox_test_roundtrip.pdf");
         finalize(&mut Document::new(), &path, false).unwrap();
-        let loaded = load_document(&path);
+        let loaded = load_document(&path, None);
         assert!(loaded.is_ok());
         std::fs::remove_file(&path).unwrap();
     }

@@ -28,7 +28,7 @@ vi.mock('@/components/left-panel', async () => {
         React.createElement(
           'button',
           { onClick: () => props.onStart({}) },
-          'Start OCR Processing',
+          'Start Queue',
         ),
       ),
   };
@@ -64,8 +64,8 @@ describe('App', () => {
   it('shows error toast when starting with no files', async () => {
     render(<App />);
     const user = userEvent.setup();
-    expect(await screen.findByRole('button', { name: /start ocr/i }));
-    await user.click(screen.getByRole('button', { name: /start ocr/i }));
+    expect(await screen.findByRole('button', { name: /start queue/i }));
+    await user.click(screen.getByRole('button', { name: /start queue/i }));
     expect(await screen.findByText('No files in queue')).toBeInTheDocument();
   });
 });

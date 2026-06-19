@@ -31,21 +31,25 @@ impl PdfiumEngine {
     }
 
     /// Renders a single PDF page on a separate thread with a 30-second timeout.
+    /// If `password` is `Some`, it is passed to the pdfium loader for
+    /// decrypting password-protected PDFs.
     pub fn render_page(
         &self,
         pdf_path: &Path,
         page_index: u32,
         dpi: u16,
+        password: Option<&str>,
     ) -> Result<Option<GrayImage>, PipelineError> {
         if self.lib_path.is_empty() {
             return Ok(None);
         }
         let lib_path = self.lib_path.clone();
         let pdf_path = pdf_path.to_path_buf();
+        let password = password.map(|s| s.to_string());
         let (tx, rx) = mpsc::channel();
 
         std::thread::spawn(move || {
-            let result = render_pdfium_page(&lib_path, &pdf_path, page_index, dpi);
+            let result = render_pdfium_page(&lib_path, &pdf_path, page_index, dpi, password.as_deref());
             let _ = tx.send(result);
         });
 
@@ -63,6 +67,7 @@ fn render_pdfium_page(
     pdf_path: &Path,
     page_index: u32,
     dpi: u16,
+    password: Option<&str>,
 ) -> Result<Option<GrayImage>, PipelineError> {
     let t0 = Instant::now();
     tracing::debug!(target: "knox::render", path = %pdf_path.display(), page = page_index, "render_pdfium_page: bind_to_library");
@@ -72,7 +77,7 @@ fn render_pdfium_page(
     tracing::debug!(target: "knox::render", elapsed = t0.elapsed().as_millis(), "render_pdfium_page: bind done, load pdf");
     let t1 = Instant::now();
     let document = pdfium
-        .load_pdf_from_file(pdf_path, None)
+        .load_pdf_from_file(pdf_path, password)
         .map_err(|e| PipelineError::Pdfium(format!("load: {e}")))?;
     tracing::debug!(target: "knox::render", elapsed = t1.elapsed().as_millis(), "render_pdfium_page: pdf loaded");
     let pages = document.pages();
@@ -125,14 +130,14 @@ mod tests {
     #[test]
     fn pdfium_engine_new_empty_path_returns_none() {
         let engine = PdfiumEngine::new("");
-        let result = engine.render_page(Path::new("/nonexistent/test.pdf"), 0, 300);
+        let result = engine.render_page(Path::new("/nonexistent/test.pdf"), 0, 300, None);
         assert!(matches!(result, Ok(None)));
     }
 
     #[test]
     fn pdfium_engine_render_with_invalid_lib_returns_error() {
         let engine = PdfiumEngine::new("/nonexistent/pdfium/dylib");
-        let result = engine.render_page(Path::new("/nonexistent/test.pdf"), 0, 300);
+        let result = engine.render_page(Path::new("/nonexistent/test.pdf"), 0, 300, None);
         assert!(
             result.is_err(),
             "expected error for invalid lib, got {result:?}"
@@ -160,7 +165,7 @@ mod tests {
             .join("fixtures")
             .join("blank.pdf");
         if tiny_pdf.exists() {
-            let result = engine.render_page(&tiny_pdf, 0, 72);
+            let result = engine.render_page(&tiny_pdf, 0, 72, None);
             assert!(
                 matches!(result, Ok(Some(_))),
                 "render_page failed: {result:?}"

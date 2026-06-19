@@ -5,16 +5,46 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::time::sleep;
+
 
 use crate::history;
 use crate::ocr_engine::runtime::RuntimeResources;
-use crate::queue::{SharedQueue, default_concurrency, now_millis};
+use crate::queue::{SharedQueue, QueueStore, default_concurrency, now_millis};
 use crate::security;
 use crate::{
-    CommandError, EnqueuePayload, FileMetadata, HistoryEntry, Job, JobStatus, OcrOptions,
-    OutputType, QueueState, SharedHistory,
+    CommandError, EnqueuePayload, FileEncryptionInfo, FileMetadata, HistoryEntry, Job, JobStatus,
+    OcrOptions, QueueState, SharedHistory,
 };
+
+macro_rules! lock_or_err {
+    ($lock:expr, $target:literal) => {
+        match $lock {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!(target: $target, "lock poisoned: {e}");
+                return Err(CommandError::queue(concat!($target, " lock poisoned")));
+            }
+        }
+    };
+    ($lock:expr, $target:literal, history) => {
+        match $lock {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!(target: $target, "lock poisoned: {e}");
+                return Err(CommandError::history(concat!($target, " lock poisoned")));
+            }
+        }
+    };
+    ($lock:expr, $target:literal, return) => {
+        match $lock {
+            Ok(guard) => guard,
+            Err(e) => {
+                tracing::error!(target: $target, "lock poisoned: {e}");
+                return;
+            }
+        }
+    };
+}
 
 fn global_runtime() -> &'static Arc<RuntimeResources> {
     crate::RUNTIME.get_or_init(|| Arc::new(RuntimeResources::new()))
@@ -242,7 +272,6 @@ pub fn write_log_file(path: String, content: String) -> Result<(), CommandError>
 
 #[tauri::command]
 pub fn get_file_metadata(path: String) -> Result<FileMetadata, CommandError> {
-    use std::fs;
     let p = Path::new(&path);
     if !p.exists() {
         return Err(CommandError::validation(format!(
@@ -254,7 +283,7 @@ pub fn get_file_metadata(path: String) -> Result<FileMetadata, CommandError> {
             "Not a regular file: {path}"
         )));
     }
-    let metadata = fs::metadata(&path).map_err(|e| CommandError::io(e.to_string()))?;
+    let metadata = std::fs::metadata(&path).map_err(|e| CommandError::io(e.to_string()))?;
     Ok(FileMetadata {
         size: metadata.len(),
     })
@@ -272,10 +301,7 @@ pub fn enqueue(
         validate_input_path(file_path)?;
     }
 
-    let mut queue = state.lock().map_err(|e| {
-        tracing::error!(target: "knox::queue", "lock poisoned: {e}");
-        CommandError::queue("Queue lock poisoned")
-    })?;
+    let mut queue = lock_or_err!(state.lock(), "knox::queue");
     let count = payload.files.len();
     for file in payload.files {
         let output_path = security::safe_output_path(&output_dir, Path::new(&file));
@@ -308,10 +334,7 @@ pub fn remove_job(
     state: tauri::State<'_, SharedQueue>,
     job_id: String,
 ) -> Result<QueueState, CommandError> {
-    let mut queue = state.lock().map_err(|e| {
-        tracing::error!(target: "knox::queue", "lock poisoned: {e}");
-        CommandError::queue("Queue lock poisoned")
-    })?;
+    let mut queue = lock_or_err!(state.lock(), "knox::queue");
     let index = queue
         .jobs
         .iter()
@@ -346,10 +369,7 @@ pub fn remove_job(
 
 #[tauri::command]
 pub fn get_status(state: tauri::State<'_, SharedQueue>) -> Result<QueueState, CommandError> {
-    let queue = state.lock().map_err(|e| {
-        tracing::error!(target: "knox::queue", "lock poisoned: {e}");
-        CommandError::queue("Queue lock poisoned")
-    })?;
+    let queue = lock_or_err!(state.lock(), "knox::queue");
     Ok(QueueState {
         jobs: queue.jobs.clone(),
         is_running: queue.is_running,
@@ -358,10 +378,7 @@ pub fn get_status(state: tauri::State<'_, SharedQueue>) -> Result<QueueState, Co
 
 #[tauri::command]
 pub fn clear_queue(state: tauri::State<'_, SharedQueue>) -> Result<QueueState, CommandError> {
-    let mut queue = state.lock().map_err(|e| {
-        tracing::error!(target: "knox::queue", "lock poisoned: {e}");
-        CommandError::queue("Queue lock poisoned")
-    })?;
+    let mut queue = lock_or_err!(state.lock(), "knox::queue");
     let count = queue.jobs.len();
     queue.jobs.clear();
     queue.queue.clear();
@@ -377,10 +394,7 @@ pub fn clear_queue(state: tauri::State<'_, SharedQueue>) -> Result<QueueState, C
 pub fn get_history(
     state: tauri::State<'_, SharedHistory>,
 ) -> Result<Vec<HistoryEntry>, CommandError> {
-    let history = state.lock().map_err(|e| {
-        tracing::error!(target: "knox::history", "lock poisoned: {e}");
-        CommandError::history("History lock poisoned")
-    })?;
+    let history = lock_or_err!(state.lock(), "knox::history", history);
     Ok(history.entries.clone())
 }
 
@@ -389,10 +403,7 @@ pub fn clear_history(
     app: AppHandle,
     state: tauri::State<'_, SharedHistory>,
 ) -> Result<(), CommandError> {
-    let mut history = state.lock().map_err(|e| {
-        tracing::error!(target: "knox::history", "lock poisoned: {e}");
-        CommandError::history("History lock poisoned")
-    })?;
+    let mut history = lock_or_err!(state.lock(), "knox::history", history);
     history.entries.clear();
     history::save_history(&app, &history).map_err(CommandError::history)?;
     if let Err(e) = app.emit("historyUpdated", history.entries.clone()) {
@@ -401,24 +412,182 @@ pub fn clear_history(
     Ok(())
 }
 
+fn emit_queue_state(app: &AppHandle, queue: &QueueStore) {
+    let snapshot = QueueState {
+        jobs: queue.jobs.clone(),
+        is_running: queue.is_running,
+    };
+    if let Err(e) = app.emit("queueState", snapshot) {
+        tracing::error!(target: "knox::queue", "emit queueState failed: {e}");
+    }
+}
+
+struct JobSpawn {
+    index: usize,
+    options: OcrOptions,
+    processing: Option<crate::ocr_engine::types::ProcessingConfigInput>,
+}
+
+fn dequeue_job(state: &SharedQueue) -> Option<JobSpawn> {
+    let mut queue = match state.lock() {
+        Ok(lock) => lock,
+        Err(e) => {
+            tracing::error!(target: "knox::queue", "lock poisoned: {e}");
+            return None;
+        }
+    };
+    let index = *queue.queue.front()?;
+    let options = queue.jobs[index].options.clone();
+    let max_concurrency = options
+        .max_concurrency
+        .map(|v| v as usize)
+        .unwrap_or_else(default_concurrency);
+    let should_wait = options.safe_mode && queue.in_flight > 0;
+    if queue.in_flight < max_concurrency && !should_wait {
+        queue.queue.pop_front();
+        queue.in_flight += 1;
+        let processing = queue.jobs[index].processing.clone();
+        Some(JobSpawn { index, options, processing })
+    } else {
+        None
+    }
+}
+
+async fn run_job(
+    app: AppHandle,
+    state: SharedQueue,
+    history_state: SharedHistory,
+    index: usize,
+    options: OcrOptions,
+    processing: Option<crate::ocr_engine::types::ProcessingConfigInput>,
+    job_cancelled: Arc<std::sync::atomic::AtomicBool>,
+) {
+    let (job_id, input_path, output_path, started_at) = {
+        let mut queue = lock_or_err!(state.lock(), "knox::queue", return);
+        let job = &mut queue.jobs[index];
+        job.status = JobStatus::Running;
+        job.percent = 0;
+        job.started_at = Some(now_millis());
+        if let Err(e) = app.emit("jobProgress", job.clone()) {
+            tracing::error!(target: "knox::queue", "emit jobProgress failed: {e}");
+        }
+        (
+            job.id.clone(),
+            job.input_path.clone(),
+            job.output_path.clone(),
+            job.started_at.unwrap_or_else(now_millis),
+        )
+    };
+    tracing::info!(target: "knox::queue", job_id, input_path, "job started");
+
+    let engine_config = match sanitize_processing_config(&app, &options, processing) {
+        Ok(cfg) => cfg,
+        Err(msg) => {
+            tracing::error!(target: "knox::queue", job_id, "config error: {msg}");
+            let mut queue = lock_or_err!(state.lock(), "knox::queue", return);
+            let job = &mut queue.jobs[index];
+            job.status = JobStatus::Failed;
+            job.error_message = Some(msg.to_string());
+            if let Err(e) = app.emit("jobProgress", job.clone()) {
+                tracing::error!(target: "knox::queue", "emit jobProgress failed: {e}");
+            }
+            if let Err(e) = app.emit("jobFinished", job.clone()) {
+                tracing::error!(target: "knox::queue", "emit jobFinished failed: {e}");
+            }
+            queue.in_flight = queue.in_flight.saturating_sub(1);
+            return;
+        }
+    };
+    let settings = crate::ocr_engine::types::OcrSettings::from(&options);
+    let runtime = global_runtime().clone();
+    let engine = crate::ocr_engine::engine::Engine::new(
+        runtime,
+        #[cfg(feature = "ocr")]
+        app.state::<crate::ocr_engine::engine::SharedTessPool>()
+            .inner()
+            .clone(),
+        app.state::<std::sync::Arc<crate::ocr_engine::render::PdfiumEngine>>()
+            .inner()
+            .clone(),
+    );
+    let result = engine
+        .process_files(
+            app.clone(),
+            engine_config,
+            settings,
+            vec![crate::ocr_engine::ingest::IngestItem {
+                job_id: job_id.clone(),
+                path: PathBuf::from(&input_path),
+                output_path: PathBuf::from(&output_path),
+            }],
+            4,
+            job_cancelled,
+        )
+        .await;
+    let was_cancelled = matches!(
+        &result,
+        Err(crate::ocr_engine::error::PipelineError::Cancelled)
+    );
+    let succeeded = result.is_ok();
+    tracing::info!(target: "knox::queue", job_id, succeeded, was_cancelled, "job finished");
+
+    let finished_at = now_millis();
+    let duration_ms = finished_at.saturating_sub(started_at);
+    let job_snapshot = {
+        let mut queue = lock_or_err!(state.lock(), "knox::queue", return);
+        queue.in_flight = queue.in_flight.saturating_sub(1);
+        let job = &mut queue.jobs[index];
+        job.status = if was_cancelled {
+            JobStatus::Cancelled
+        } else if succeeded {
+            JobStatus::Completed
+        } else {
+            JobStatus::Failed
+        };
+        job.percent = if succeeded { 100 } else { job.percent };
+        job.finished_at = Some(finished_at);
+        if was_cancelled {
+            job.error_message = None;
+        } else if let Err(ref err) = result {
+            job.error_message = Some(err.to_string());
+        }
+        job.clone()
+    };
+    if let Err(e) = app.emit("jobFinished", job_snapshot) {
+        tracing::error!(target: "knox::queue", "emit jobFinished failed: {e}");
+    }
+
+    if !was_cancelled {
+        history::push_history(
+            &app,
+            &history_state,
+            HistoryEntry {
+                id: job_id,
+                input_path,
+                output_path,
+                status: if succeeded { JobStatus::Completed } else { JobStatus::Failed },
+                started_at,
+                finished_at,
+                duration_ms,
+                options: options.without_password(),
+            },
+        );
+    }
+}
+
 #[tauri::command]
 pub fn start_queue(
     app: AppHandle,
     state: tauri::State<'_, SharedQueue>,
     history: tauri::State<'_, SharedHistory>,
 ) -> Result<(), CommandError> {
-    let mut queue = state.lock().map_err(|e| {
-        tracing::error!(target: "knox::queue", "lock poisoned: {e}");
-        CommandError::queue("Queue lock poisoned")
-    })?;
+    let mut queue = lock_or_err!(state.lock(), "knox::queue");
     if queue.is_running {
         tracing::warn!(target: "knox::queue", "start_queue called but already running");
         return Ok(());
     }
     let cancelled = queue.cancelled.clone();
-    queue
-        .cancelled
-        .store(false, std::sync::atomic::Ordering::SeqCst);
+    queue.cancelled.store(false, std::sync::atomic::Ordering::SeqCst);
     queue.is_running = true;
     drop(queue);
 
@@ -427,248 +596,46 @@ pub fn start_queue(
     tracing::info!(target: "knox::queue", "queue processing loop started");
     tauri::async_runtime::spawn(async move {
         loop {
-            let (next_index, job_options, pause) = {
-                let mut queue = match state.lock() {
-                    Ok(lock) => lock,
-                    Err(e) => {
-                        tracing::error!(target: "knox::queue", "lock poisoned: {e}");
-                        return;
-                    }
-                };
-
-                if !queue.is_running {
+            if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+                let should_stop = {
+                    let queue = lock_or_err!(state.lock(), "knox::queue", return);
                     if queue.in_flight == 0 {
-                        let snapshot = QueueState {
-                            jobs: queue.jobs.clone(),
-                            is_running: queue.is_running,
-                        };
-                        if let Err(e) = app.emit("queueState", snapshot) {
-                            tracing::error!(target: "knox::queue", "emit queueState failed: {e}");
-                        }
-                        return;
-                    }
-                    (None, None, true)
-                } else if let Some(&index) = queue.queue.front() {
-                    let options = queue.jobs[index].options.clone();
-                    let max_concurrency = options
-                        .max_concurrency
-                        .map(|value| value as usize)
-                        .unwrap_or_else(default_concurrency);
-                    let should_wait = options.safe_mode && queue.in_flight > 0;
-                    let can_start = queue.in_flight < max_concurrency && !should_wait;
-                    if can_start {
-                        queue.queue.pop_front();
-                        queue.in_flight += 1;
-                        (Some(index), Some(options), false)
+                        emit_queue_state(&app, &*queue);
+                        true
                     } else {
-                        (None, None, true)
+                        false
                     }
-                } else if queue.in_flight == 0 {
-                    queue.is_running = false;
-                    let snapshot = QueueState {
-                        jobs: queue.jobs.clone(),
-                        is_running: queue.is_running,
-                    };
-                    if let Err(e) = app.emit("queueState", snapshot) {
-                        tracing::error!(target: "knox::queue", "emit queueState failed: {e}");
-                    }
-                    return;
-                } else {
-                    (None, None, true)
-                }
-            };
-
-            if let Some(index) = next_index {
-                let app = app.clone();
-                let state = state.clone();
-                let history_state = history_state.clone();
-                let job_cancelled = cancelled.clone();
-                let processing = {
-                    let queue = state.lock().ok();
-                    queue.and_then(|queue| {
-                        queue.jobs.get(index).and_then(|job| job.processing.clone())
-                    })
                 };
-                let options = job_options.unwrap_or(OcrOptions {
-                    output_type: OutputType::Pdfa,
-                    safe_mode: false,
-                    max_concurrency: None,
-                    binarization: crate::ocr_engine::types::BinarizationMode::Otsu,
-                    fixed_threshold: 128,
-                    deskew_mode: crate::ocr_engine::types::DeskewMode::Radon,
-                    denoise_level: 2,
-                    existing_text: crate::ocr_engine::types::ExistingTextMode::Skip,
-                    psm: crate::ocr_engine::types::PageSegMode::Auto,
-                    compression: crate::ocr_engine::types::CompressionMode::Ccitt,
-                    resolution_dpi: 300,
-                    archive_enforcement: false,
-                    languages: None,
-                    memory_pages: None,
-                });
-                tauri::async_runtime::spawn(async move {
-                    let (job_id, input_path, output_path, started_at) = {
-                        let mut queue = match state.lock() {
-                            Ok(lock) => lock,
-                            Err(e) => {
-                                tracing::error!(target: "knox::queue", "lock poisoned: {e}");
-                                return;
-                            }
-                        };
-                        let job = &mut queue.jobs[index];
-                        job.status = JobStatus::Running;
-                        job.percent = 0;
-                        job.started_at = Some(now_millis());
-                        if let Err(e) = app.emit("jobProgress", job.clone()) {
-                            tracing::error!(target: "knox::queue", "emit jobProgress failed: {e}");
-                        }
-                        (
-                            job.id.clone(),
-                            job.input_path.clone(),
-                            job.output_path.clone(),
-                            job.started_at.unwrap_or_else(now_millis),
-                        )
-                    };
-                    tracing::info!(
-                        target: "knox::queue",
-                        job_id,
-                        input_path,
-                        "job started"
-                    );
-
-                    let engine_config = match sanitize_processing_config(&app, &options, processing)
-                    {
-                        Ok(cfg) => cfg,
-                        Err(msg) => {
-                            tracing::error!(
-                                target: "knox::queue",
-                                job_id,
-                                "config error: {msg}"
-                            );
-                            let mut queue = match state.lock() {
-                                Ok(lock) => lock,
-                                Err(e) => {
-                                    tracing::error!(
-                                        target: "knox::queue",
-                                        "lock poisoned: {e}"
-                                    );
-                                    return;
-                                }
-                            };
-                            let job = &mut queue.jobs[index];
-                            job.status = JobStatus::Failed;
-                            job.error_message = Some(msg.to_string());
-                            if let Err(e) = app.emit("jobProgress", job.clone()) {
-                                tracing::error!(
-                                    target: "knox::queue",
-                                    "emit jobProgress failed: {e}"
-                                );
-                            }
-                            if let Err(e) = app.emit("jobFinished", job.clone()) {
-                                tracing::error!(
-                                    target: "knox::queue",
-                                    "emit jobFinished failed: {e}"
-                                );
-                            }
-                            queue.in_flight = queue.in_flight.saturating_sub(1);
-                            return;
-                        }
-                    };
-                    let settings = crate::ocr_engine::types::OcrSettings::from(&options);
-                    let runtime = global_runtime().clone();
-                    let engine = crate::ocr_engine::engine::Engine::new(
-                        runtime,
-                        #[cfg(feature = "ocr")]
-                        app.state::<crate::ocr_engine::engine::SharedTessPool>()
-                            .inner()
-                            .clone(),
-                        app.state::<std::sync::Arc<crate::ocr_engine::render::PdfiumEngine>>()
-                            .inner()
-                            .clone(),
-                    );
-                    let result = engine
-                        .process_files(
-                            app.clone(),
-                            engine_config,
-                            settings,
-                            vec![crate::ocr_engine::ingest::IngestItem {
-                                job_id: job_id.clone(),
-                                path: PathBuf::from(&input_path),
-                                output_path: PathBuf::from(&output_path),
-                            }],
-                            4,
-                            job_cancelled,
-                        )
-                        .await;
-                    let was_cancelled = matches!(
-                        &result,
-                        Err(crate::ocr_engine::error::PipelineError::Cancelled)
-                    );
-                    let succeeded = result.is_ok();
-                    tracing::info!(
-                        target: "knox::queue",
-                        job_id,
-                        succeeded,
-                        was_cancelled,
-                        "job finished"
-                    );
-
-                    let finished_at = now_millis();
-                    let duration_ms = finished_at.saturating_sub(started_at);
-                    let job_snapshot = {
-                        let mut queue = match state.lock() {
-                            Ok(lock) => lock,
-                            Err(e) => {
-                                tracing::error!(
-                                    target: "knox::queue",
-                                    "lock poisoned: {e}"
-                                );
-                                return;
-                            }
-                        };
-                        queue.in_flight = queue.in_flight.saturating_sub(1);
-                        let job = &mut queue.jobs[index];
-                        job.status = if was_cancelled {
-                            JobStatus::Cancelled
-                        } else if succeeded {
-                            JobStatus::Completed
-                        } else {
-                            JobStatus::Failed
-                        };
-                        job.percent = if succeeded { 100 } else { job.percent };
-                        job.finished_at = Some(finished_at);
-                        if was_cancelled {
-                            job.error_message = None;
-                        } else if let Err(ref err) = result {
-                            job.error_message = Some(err.to_string());
-                        }
-                        job.clone()
-                    };
-                    if let Err(e) = app.emit("jobFinished", job_snapshot) {
-                        tracing::error!(target: "knox::queue", "emit jobFinished failed: {e}");
-                    }
-
-                    if !was_cancelled {
-                        let history_entry = HistoryEntry {
-                            id: job_id,
-                            input_path,
-                            output_path,
-                            status: if succeeded {
-                                JobStatus::Completed
-                            } else {
-                                JobStatus::Failed
-                            },
-                            started_at,
-                            finished_at,
-                            duration_ms,
-                            options,
-                        };
-                        history::push_history(&app, &history_state, history_entry);
-                    }
-                });
+                if should_stop {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(120)).await;
+                continue;
             }
 
-            if pause {
-                sleep(Duration::from_millis(120)).await;
+            if let Some(spawn) = dequeue_job(&state) {
+                let app = app.clone();
+                let state = state.clone();
+                let h = history_state.clone();
+                let cc = cancelled.clone();
+                tauri::async_runtime::spawn(run_job(
+                    app, state, h, spawn.index, spawn.options, spawn.processing, cc,
+                ));
+            } else {
+                let should_stop = {
+                    let mut queue = lock_or_err!(state.lock(), "knox::queue", return);
+                    if queue.in_flight == 0 && queue.queue.is_empty() {
+                        queue.is_running = false;
+                        emit_queue_state(&app, &*queue);
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if should_stop {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(120)).await;
             }
         }
     });
@@ -681,10 +648,7 @@ pub fn pause_queue(
     app: AppHandle,
     state: tauri::State<'_, SharedQueue>,
 ) -> Result<(), CommandError> {
-    let mut queue = state.lock().map_err(|e| {
-        tracing::error!(target: "knox::queue", "lock poisoned: {e}");
-        CommandError::queue("Queue lock poisoned")
-    })?;
+    let mut queue = lock_or_err!(state.lock(), "knox::queue");
     queue.is_running = false;
     queue
         .cancelled
@@ -698,6 +662,40 @@ pub fn pause_queue(
         tracing::error!(target: "knox::queue", "emit queueState failed: {e}");
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn check_file_encrypted(path: String) -> Result<FileEncryptionInfo, CommandError> {
+    let p = Path::new(&path);
+    if !p.exists() {
+        return Err(CommandError::validation(format!(
+            "File does not exist: {path}"
+        )));
+    }
+    let canonical = p
+        .canonicalize()
+        .map_err(|e| CommandError::io(format!("Failed to canonicalize path: {e}")))?;
+    let file_id = canonical.to_string_lossy().to_string();
+
+    match lopdf::Document::load(p) {
+        Ok(doc) => Ok(FileEncryptionInfo {
+            encrypted: doc.is_encrypted(),
+            file_id,
+        }),
+        Err(e) => {
+            let msg = e.to_string().to_lowercase();
+            if msg.contains("encrypt") || msg.contains("password") {
+                Ok(FileEncryptionInfo {
+                    encrypted: true,
+                    file_id,
+                })
+            } else {
+                Err(CommandError::pipeline(format!(
+                    "Failed to load PDF: {e}"
+                )))
+            }
+        }
+    }
 }
 
 #[tauri::command]

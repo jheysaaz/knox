@@ -1,9 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { ProfileValues } from '@/components/advanced-options';
-import type { FileItem, HistoryEntry, LogEntry } from '@/types';
+import type { LogEntry } from '@/types';
+import { useEventListener } from './useEventListener';
+import { useFileManager } from './useFileManager';
 
 interface QueueState {
   jobs: Job[];
@@ -21,33 +22,12 @@ interface Job {
   errorMessage?: string | null;
 }
 
-interface PipelineProgress {
-  jobId: string;
-  status: 'processing' | 'ocr' | 'completed' | 'failed';
-  currentPage: number;
-  totalPages: number;
-  totalFilesProcessed: number;
-  totalFilesInQueue: number;
-  averageMsPerPage: number;
-  errorMessage?: string | null;
+interface FileEncryptionInfo {
+  encrypted: boolean;
+  fileId: string;
 }
 
-const mapJobStatus = (status: Job['status']): FileItem['status'] => {
-  switch (status) {
-    case 'running':
-      return 'processing';
-    case 'completed':
-      return 'complete';
-    case 'failed':
-      return 'error';
-    case 'cancelled':
-      return 'paused';
-    default:
-      return 'pending';
-  }
-};
-
-const mapSettingsToOptions = (values: ProfileValues) => ({
+const mapSettingsToOptions = (values: ProfileValues, password?: string) => ({
   outputType: values.archiveEnforcement ? 'pdfa' : 'pdf',
   safeMode: values.safeMode,
   binarization: values.binarization,
@@ -61,6 +41,8 @@ const mapSettingsToOptions = (values: ProfileValues) => ({
   archiveEnforcement: values.archiveEnforcement,
   languages: values.languages.join('+'),
   memoryPages: values.memoryPages,
+  continueOnError: values.continueOnError,
+  password: password || undefined,
 });
 
 const mapSettingsToProcessing = (values: ProfileValues) => ({
@@ -72,275 +54,275 @@ const mapSettingsToProcessing = (values: ProfileValues) => ({
 export function useQueue(
   addLog: (level: LogEntry['level'], message: string) => void,
 ) {
-  const [files, setFiles] = useState<FileItem[]>([]);
+  const {
+    files,
+    setFiles,
+    handleFilesAdded: baseHandleFilesAdded,
+    handleFileRemove,
+    handleFileReprocess,
+    handleClearFiles,
+  } = useFileManager(addLog);
+
   const [outputDir, setOutputDir] = useState('');
-  const [showActivity, setShowActivity] = useState(true);
   const [starting, setStarting] = useState(false);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
 
-  const isRunning = useMemo(
-    () => files.some((f) => f.status === 'processing'),
-    [files],
-  );
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [pendingEncryptedFiles, setPendingEncryptedFiles] = useState<
+    { id: string; name: string; path: string }[]
+  >([]);
+  const passwordCache = useRef<Map<string, string>>(new Map());
+  const encryptedFiles = useRef<Set<string>>(new Set());
+  const pendingStartSettings = useRef<ProfileValues | null>(null);
+  const lastStartSettings = useRef<ProfileValues | null>(null);
 
-  const listenersReady = useRef(false);
-  const cleanupFns = useRef<(() => void)[]>([]);
-
-  useEffect(() => {
-    return () => {
-      cleanupFns.current.forEach((fn) => fn());
-    };
-  }, []);
-
-  const ensureListeners = useCallback(async () => {
-    if (listenersReady.current) return;
-    listenersReady.current = true;
-    const fns = await Promise.all([
-      listen<PipelineProgress>('pipeline-progress', (event) => {
-        const progress = event.payload;
-        if (progress.status === 'failed' && progress.errorMessage) {
-          addLog('error', progress.errorMessage);
-        }
+  const handleEncryptionError = useCallback(
+    (filePath: string) => {
+      passwordCache.current.delete(filePath);
+      const file = files.find((f) => f.path === filePath);
+      if (file) {
         setFiles((prev) =>
-          prev.map((file) => {
-            if (file.id !== progress.jobId) return file;
-            const percent = progress.totalPages
-              ? Math.round((progress.currentPage / progress.totalPages) * 100)
-              : 0;
-            return {
-              ...file,
-              status:
-                progress.status === 'failed'
-                  ? 'error'
-                  : progress.status === 'completed'
-                    ? 'complete'
-                    : 'processing',
-              progress: percent,
-            };
-          }),
-        );
-      }),
-      listen<QueueState>('queueState', (event) => {
-        const snapshot = event.payload;
-        setFiles((prev) =>
-          prev.map((file) => {
-            const job = snapshot.jobs.find((j) => j.id === file.id);
-            if (!job) return file;
-            return {
-              ...file,
-              status: mapJobStatus(job.status),
-              queued: true,
-            };
-          }),
-        );
-      }),
-      listen<Job>('jobFinished', (event) => {
-        const job = event.payload;
-        setFiles((prev) =>
-          prev.map((file) =>
-            file.id === job.id
+          prev.map((f) =>
+            f.path === filePath
               ? {
-                  ...file,
-                  status:
-                    job.status === 'completed'
-                      ? 'complete'
-                      : job.status === 'cancelled'
-                        ? 'paused'
-                        : 'error',
-                  progress: job.status === 'completed' ? 100 : file.progress,
-                  queued: true,
+                  ...f,
+                  status: 'pending' as const,
+                  queued: false,
+                  progress: undefined,
                 }
-              : file,
+              : f,
           ),
         );
-        addLog(
-          job.status === 'completed'
-            ? 'info'
-            : job.status === 'cancelled'
-              ? 'warn'
-              : 'error',
-          job.status === 'completed'
-            ? `Completed: ${job.inputPath} → ${job.outputPath}`
-            : job.status === 'cancelled'
-              ? `Paused: ${job.inputPath}`
-              : `Failed: ${job.errorMessage || job.inputPath}`,
-        );
-      }),
-      listen<Job>('jobProgress', (event) => {
-        const job = event.payload;
-        setFiles((prev) =>
-          prev.map((file) =>
-            file.id === job.id
-              ? { ...file, status: mapJobStatus(job.status) }
-              : file,
-          ),
-        );
-      }),
-      listen<HistoryEntry[]>('historyUpdated', (event) => {
-        setHistory(event.payload);
-      }),
-    ]);
-    cleanupFns.current = fns;
-
-    try {
-      const initial = await invoke<HistoryEntry[]>('get_history');
-      setHistory(initial);
-    } catch {
-      // history load is best-effort
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addLog]);
-
-  const handleFilesAdded = (newFiles: FileItem[]) => {
-    setFiles((prev) =>
-      [...prev, ...newFiles].map((file) => ({
-        ...file,
-        queued: file.queued ?? false,
-      })),
-    );
-    addLog('info', `${newFiles.length} file(s) added`);
-  };
-
-  const handleFileRemove = useCallback(
-    async (id: string) => {
-      const file = files.find((f) => f.id === id);
-      if (!file) return;
-      if (file.status === 'processing') {
-        toast.error('Cannot remove a file that is currently processing');
-        return;
-      }
-      if (!file.queued) {
-        setFiles((prev) => prev.filter((f) => f.id !== id));
-        addLog('info', `Removed: ${file.name}`);
-        return;
-      }
-      try {
-        await invoke('remove_job', { job_id: id });
-        setFiles((prev) => prev.filter((f) => f.id !== id));
-        addLog('info', `Removed: ${file.name}`);
-      } catch {
-        toast.error('Unable to remove file');
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [files, addLog],
-  );
-
-  const handleFileReprocess = useCallback(
-    async (id: string) => {
-      const file = files.find((f) => f.id === id);
-      if (!file) return;
-
-      if (file.queued) {
-        try {
-          await invoke('remove_job', { job_id: id });
-        } catch {
-          // job may already be gone from backend
+        if (lastStartSettings.current) {
+          pendingStartSettings.current = lastStartSettings.current;
         }
+        setPendingEncryptedFiles([
+          { id: file.id, name: file.name, path: file.path },
+        ]);
+        setPasswordDialogOpen(true);
       }
-
-      setFiles((prev) =>
-        prev.map((f) =>
-          f.id === id
-            ? { ...f, status: 'pending', queued: false, progress: undefined }
-            : f,
-        ),
-      );
-      addLog('info', `Queued for reprocess: ${file.name}`);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [files, addLog],
+    [files, setFiles],
   );
 
-  const handleClearFiles = useCallback(async () => {
-    try {
-      await invoke('clear_queue');
-      setFiles([]);
-      addLog('info', 'Queue cleared');
-    } catch {
-      toast.error('Unable to clear queue');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addLog]);
+  const {
+    history,
+    isRunning,
+    setIsRunning,
+    ensureListeners,
+    handleClearHistory,
+  } = useEventListener(setFiles, addLog, handleEncryptionError);
 
-  const handleStart = async (settings: ProfileValues) => {
-    if (files.length === 0) {
-      toast.error('No files in queue');
-      return;
-    }
-    if (!outputDir) {
-      toast.error('No output directory selected');
-      return;
-    }
-    setStarting(true);
-    try {
-      const options = mapSettingsToOptions(settings);
-      const processing = mapSettingsToProcessing(settings);
+  const executeStart = useCallback(
+    async (settings: ProfileValues) => {
       const pending = files.filter(
         (file) => file.status === 'pending' && !file.queued,
       );
-      const paths = pending.map((file) => file.path);
-      if (paths.length === 0) {
+      if (pending.length === 0) {
         toast.error('No pending files to process');
         return;
       }
 
-      // Ensure language packs are available
-      if (settings.languages.length > 0) {
-        const langResult = await invoke<{
-          downloaded: string[];
-          skipped: string[];
-          errors: Record<string, string>;
-        }>('ensure_language_packs', {
-          languages: [...new Set(settings.languages)],
-        });
-        if (langResult.downloaded.length > 0) {
-          addLog(
-            'info',
-            `Downloaded ${langResult.downloaded.length} language pack(s)`,
+      setStarting(true);
+      try {
+        if (settings.languages.length > 0) {
+          const langResult = await invoke<{
+            downloaded: string[];
+            skipped: string[];
+            errors: Record<string, string>;
+          }>('ensure_language_packs', {
+            languages: [...new Set(settings.languages)],
+          });
+          if (langResult.downloaded.length > 0) {
+            addLog(
+              'info',
+              `Downloaded ${langResult.downloaded.length} language pack(s)`,
+            );
+          }
+          if (Object.keys(langResult.errors).length > 0) {
+            const failed = Object.entries(langResult.errors)
+              .map(([l, e]) => `${l}: ${e}`)
+              .join('; ');
+            addLog('warn', `Language pack download issues: ${failed}`);
+          }
+        }
+
+        const paths = pending.map((file) => file.path);
+        const passwords = paths.map(
+          (p) => passwordCache.current.get(p) || undefined,
+        );
+        const allSame = passwords.every((p, _i, a) => p === a[0]);
+
+        if (allSame) {
+          const options = mapSettingsToOptions(settings, passwords[0]);
+          const processing = mapSettingsToProcessing(settings);
+          const state = await invoke<QueueState>('enqueue', {
+            payload: {
+              files: paths,
+              outputDir,
+              options,
+              processing,
+            },
+          });
+          setIsRunning(state.isRunning);
+          setFiles((prev) => {
+            const used = new Set<string>();
+            const newJobs = state.jobs.filter((j) => j.status === 'queued');
+            return prev.map((file) => {
+              if (file.status !== 'pending' || file.queued) return file;
+              const job = newJobs.find(
+                (j) => j.inputPath === file.path && !used.has(j.id),
+              );
+              if (!job) return file;
+              used.add(job.id);
+              return { ...file, id: job.id, queued: true };
+            });
+          });
+        } else {
+          for (let i = 0; i < paths.length; i++) {
+            const options = mapSettingsToOptions(settings, passwords[i]);
+            const processing = mapSettingsToProcessing(settings);
+            await invoke<QueueState>('enqueue', {
+              payload: {
+                files: [paths[i]],
+                outputDir,
+                options,
+                processing,
+              },
+            });
+          }
+          await invoke<QueueState>('get_status');
+          setFiles((prev) =>
+            prev.map((f) =>
+              pending.some((p) => p.id === f.id) ? { ...f, queued: true } : f,
+            ),
           );
         }
-        if (Object.keys(langResult.errors).length > 0) {
-          const failed = Object.entries(langResult.errors)
-            .map(([l, e]) => `${l}: ${e}`)
-            .join('; ');
-          addLog('warn', `Language pack download issues: ${failed}`);
+
+        await ensureListeners();
+        await invoke('start_queue');
+        addLog('info', `Processing ${paths.length} file(s)...`);
+      } catch (err) {
+        const message = (err as { message?: string })?.message || String(err);
+        toast.error(`Failed to start processing: ${message}`);
+        addLog('error', `Start failed: ${message}`);
+      } finally {
+        setStarting(false);
+      }
+    },
+    [files, outputDir, addLog, setFiles, setIsRunning, ensureListeners],
+  );
+
+  const handleFilesAdded = useCallback(
+    async (
+      newFiles: {
+        id: string;
+        path: string;
+        name: string;
+        size: number;
+        status: string;
+        queued?: boolean;
+      }[],
+    ) => {
+      baseHandleFilesAdded(newFiles as any);
+
+      const checks = await Promise.allSettled(
+        newFiles.map(async (file) => {
+          const info = await invoke<FileEncryptionInfo>(
+            'check_file_encrypted',
+            {
+              path: file.path,
+            },
+          );
+          return { file, info };
+        }),
+      );
+
+      const encrypted: { id: string; name: string; path: string }[] = [];
+      for (const result of checks) {
+        if (result.status === 'fulfilled' && result.value.info.encrypted) {
+          encryptedFiles.current.add(result.value.file.path);
+          const cached = passwordCache.current.get(result.value.file.path);
+          if (!cached) {
+            encrypted.push({
+              id: result.value.file.id,
+              name: result.value.file.name,
+              path: result.value.file.path,
+            });
+          }
         }
       }
 
-      const state = await invoke<QueueState>('enqueue', {
-        payload: {
-          files: paths,
-          outputDir,
-          options,
-          processing,
-        },
-      });
-      setFiles((prev) => {
-        const used = new Set<string>();
-        const newJobs = state.jobs.filter((j) => j.status === 'queued');
-        return prev.map((file) => {
-          if (file.status !== 'pending' || file.queued) return file;
-          const job = newJobs.find(
-            (j) => j.inputPath === file.path && !used.has(j.id),
-          );
-          if (!job) return file;
-          used.add(job.id);
-          return { ...file, id: job.id, queued: true };
-        });
-      });
-      await ensureListeners();
-      await invoke('start_queue');
-      addLog('info', `Processing ${paths.length} file(s)...`);
-    } catch (err) {
-      const message = (err as { message?: string })?.message || String(err);
-      toast.error(`Failed to start processing: ${message}`);
-      addLog('error', `Start failed: ${message}`);
-    } finally {
-      setStarting(false);
-    }
-  };
+      if (encrypted.length > 0) {
+        setPendingEncryptedFiles(encrypted);
+        setPasswordDialogOpen(true);
+      }
+    },
+    [baseHandleFilesAdded],
+  );
+
+  const handlePasswordConfirm = useCallback(
+    (password: string) => {
+      for (const file of pendingEncryptedFiles) {
+        passwordCache.current.set(file.path, password);
+      }
+      setPendingEncryptedFiles([]);
+      setPasswordDialogOpen(false);
+
+      if (pendingStartSettings.current) {
+        executeStart(pendingStartSettings.current);
+      }
+    },
+    [pendingEncryptedFiles, executeStart],
+  );
+
+  const handlePasswordCancel = useCallback(() => {
+    pendingStartSettings.current = null;
+    setPendingEncryptedFiles([]);
+    setPasswordDialogOpen(false);
+  }, []);
+
+  const handleStart = useCallback(
+    async (settings: ProfileValues) => {
+      if (files.length === 0) {
+        toast.error('No files in queue');
+        return;
+      }
+      if (!outputDir) {
+        toast.error('No output directory selected');
+        return;
+      }
+
+      const pending = files.filter(
+        (file) => file.status === 'pending' && !file.queued,
+      );
+      if (pending.length === 0) {
+        toast.error('No pending files to process');
+        return;
+      }
+
+      const encryptedWithoutPassword = pending.filter(
+        (f) =>
+          encryptedFiles.current.has(f.path) &&
+          !passwordCache.current.has(f.path),
+      );
+      lastStartSettings.current = settings;
+      if (encryptedWithoutPassword.length > 0) {
+        pendingStartSettings.current = settings;
+        setPendingEncryptedFiles(
+          encryptedWithoutPassword.map((f) => ({
+            id: f.id,
+            name: f.name,
+            path: f.path,
+          })),
+        );
+        setPasswordDialogOpen(true);
+        return;
+      }
+
+      await executeStart(settings);
+    },
+    [files, outputDir, executeStart],
+  );
 
   const handleStop = useCallback(async () => {
     try {
@@ -349,34 +331,15 @@ export function useQueue(
     } catch {
       toast.error('Unable to cancel queue');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addLog]);
-
-  const handleClearHistory = useCallback(async () => {
-    try {
-      await invoke('clear_history');
-      setHistory([]);
-      addLog('info', 'History cleared');
-    } catch {
-      toast.error('Unable to clear history');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addLog]);
-
-  const handleToggleHistory = useCallback(() => {
-    setShowHistory((prev) => !prev);
-  }, []);
 
   return {
     files,
     outputDir,
     setOutputDir,
-    showActivity,
-    setShowActivity,
     isRunning,
     starting,
     history,
-    showHistory,
     handleFilesAdded,
     handleFileRemove,
     handleFileReprocess,
@@ -384,6 +347,9 @@ export function useQueue(
     handleStart,
     handleStop,
     handleClearHistory,
-    handleToggleHistory,
+    passwordDialogOpen,
+    pendingEncryptedFiles,
+    handlePasswordConfirm,
+    handlePasswordCancel,
   };
 }

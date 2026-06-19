@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "typescript")]
+use ts_rs::TS;
 
 /// Input from the frontend for engine-level configuration overrides.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessingConfigInput {
     /// Max number of files to process concurrently (semaphore permits).
@@ -34,6 +38,8 @@ pub struct ProcessingConfig {
 
 /// Per-job progress event sent to the frontend via `pipeline-progress`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct PipelineProgress {
     /// The job this progress event belongs to.
@@ -56,6 +62,8 @@ pub struct PipelineProgress {
 
 /// Stage of the OCR pipeline for progress reporting.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub enum PipelineStatus {
     /// Loading and preprocessing the page image.
@@ -70,6 +78,8 @@ pub enum PipelineStatus {
 
 /// Binarization algorithm for converting grayscale to black-and-white.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "kebab-case")]
 pub enum BinarizationMode {
     /// Otsu's method — computes optimal threshold per page.
@@ -82,6 +92,8 @@ pub enum BinarizationMode {
 
 /// Deskew (rotation correction) algorithm.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "kebab-case")]
 pub enum DeskewMode {
     /// Radon transform — best for noisy/degraded pages.
@@ -94,6 +106,8 @@ pub enum DeskewMode {
 
 /// Strategy for handling PDF pages that already contain text.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "kebab-case")]
 pub enum ExistingTextMode {
     /// Skip OCR on pages with an existing text layer.
@@ -104,6 +118,8 @@ pub enum ExistingTextMode {
 
 /// Tesseract page segmentation mode.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "kebab-case")]
 pub enum PageSegMode {
     /// Fully automatic page segmentation.
@@ -118,6 +134,8 @@ pub enum PageSegMode {
 
 /// Compression codec for bi-level (bitonal) page images.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "kebab-case")]
 pub enum CompressionMode {
     /// CCITT Group 4 fax encoding — best for binarized text.
@@ -128,6 +146,8 @@ pub enum CompressionMode {
 
 /// Resolved OCR settings derived from frontend `OcrOptions`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct OcrSettings {
     pub binarization: BinarizationMode,
@@ -139,6 +159,8 @@ pub struct OcrSettings {
     pub compression: CompressionMode,
     pub resolution_dpi: u16,
     pub archive_enforcement: bool,
+    pub continue_on_error: bool,
+    pub password: Option<String>,
 }
 
 impl From<&crate::OcrOptions> for OcrSettings {
@@ -153,6 +175,8 @@ impl From<&crate::OcrOptions> for OcrSettings {
             compression: options.compression,
             resolution_dpi: options.resolution_dpi,
             archive_enforcement: options.archive_enforcement,
+            continue_on_error: options.continue_on_error,
+            password: options.password.clone(),
         }
     }
 }

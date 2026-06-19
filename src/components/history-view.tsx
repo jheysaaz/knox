@@ -1,12 +1,10 @@
-import { AlertCircle, Ban, CheckCircle2, Clock, Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AlertCircle, Ban, CheckCircle2 } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { HistoryEntry } from '@/types';
 
 interface HistoryViewProps {
   entries: HistoryEntry[];
-  onClear: () => void;
 }
 
 function formatDuration(ms: number): string {
@@ -18,8 +16,8 @@ function formatDuration(ms: number): string {
   return `${m}m ${secs.toFixed(0)}s`;
 }
 
-function formatTimestamp(unixS: number): string {
-  const d = new Date(unixS * 1000);
+function formatTimestamp(unixMs: number): string {
+  const d = new Date(unixMs);
   return d.toLocaleTimeString(undefined, {
     hour: '2-digit',
     minute: '2-digit',
@@ -32,7 +30,7 @@ function fileName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-export function HistoryView({ entries, onClear }: HistoryViewProps) {
+export function HistoryView({ entries }: HistoryViewProps) {
   const statusIcon = (status: HistoryEntry['status']) => {
     switch (status) {
       case 'completed':
@@ -57,23 +55,6 @@ export function HistoryView({ entries, onClear }: HistoryViewProps) {
 
   return (
     <Card size="sm" className="flex flex-col overflow-hidden h-full">
-      <CardHeader className="flex flex-row items-center justify-between px-3 py-1.5">
-        <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-          <Clock className="h-4 w-4" />
-          History
-        </CardTitle>
-        {entries.length > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClear}
-            className="h-auto py-1 px-2 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Trash2 className="h-3 w-3 mr-1" />
-            Clear
-          </Button>
-        )}
-      </CardHeader>
       <CardContent className="flex-1 overflow-y-auto px-3 pb-3">
         {entries.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">

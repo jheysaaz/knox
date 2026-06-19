@@ -118,6 +118,10 @@
   --color-chart-1: var(--chart-1);
 }
 
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
 [data-sonner-toast] [data-bar] {
   height: 2px;
   background: currentColor;
@@ -141,6 +145,24 @@
 [data-sonner-toast] [data-close-button] svg {
   width: 16px;
   height: 16px;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: hsl(var(--border));
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
 }
 
 :root {

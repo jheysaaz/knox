@@ -48,16 +48,17 @@
 - **Errors**: Disk write failure
 - **Side effects**: Clears in-memory history + writes to disk; emits `historyUpdated`
 
-### `set_runner_path`
-- **Params**: `path: String`
-- **Returns**: `RunnerStatus`
-- **Errors**: Path does not exist
-- **Side effects**: Updates runner executable path
-
-### `get_runner_status`
+### `log_window_shown`
 - **Params**: none
-- **Returns**: `RunnerStatus`
+- **Returns**: `()`
 - **Errors**: None
+- **Side effects**: Logs TTI measurement
+
+### `ensure_language_packs`
+- **Params**: `languages: string[]`
+- **Returns**: `LanguagePackResult { downloaded: string[], skipped: string[], errors: Record<string, string> }`
+- **Errors**: Disk write failure
+- **Side effects**: Downloads missing Tesseract traineddata to app local data dir
 
 ### `write_log_file`
 - **Params**: `path: String`, `content: String`

@@ -18,6 +18,7 @@ const defaultValues: ProfileValues = {
   archiveEnforcement: false,
   languages: ['eng'],
   safeMode: false,
+  continueOnError: false,
 };
 
 const renderWithTooltip = (ui: React.ReactElement) =>

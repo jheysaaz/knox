@@ -16,6 +16,9 @@ src-tauri/third_party/
 # Tesseract traineddata (download on build)
 src-tauri/tessdata/
 
+# Generated TypeScript bindings from ts-rs
+src/types-gen/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

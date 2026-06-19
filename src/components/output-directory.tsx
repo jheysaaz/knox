@@ -1,6 +1,6 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { FolderOpen } from 'lucide-react';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -12,6 +12,13 @@ interface OutputDirectoryProps {
 
 /** Directory picker with text input and browse button. */
 export function OutputDirectory({ value, onChange }: OutputDirectoryProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => inputRef.current?.focus(), 200);
+    return () => clearTimeout(timer);
+  }, []);
+
   const handleBrowse = useCallback(async () => {
     try {
       const selected = await open({
@@ -33,6 +40,7 @@ export function OutputDirectory({ value, onChange }: OutputDirectoryProps) {
       </label>
       <div className="flex gap-2">
         <Input
+          ref={inputRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Select output directory..."

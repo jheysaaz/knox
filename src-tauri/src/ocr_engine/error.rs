@@ -27,4 +27,8 @@ pub enum PipelineError {
     /// extraction when this occurs, so this error is non-fatal at the page level.
     #[error("PDFium error: {0}")]
     Pdfium(String),
+    /// The PDF is password-protected and no password was provided, or the
+    /// provided password was incorrect.
+    #[error("Encrypted PDF: {0}")]
+    Encrypted(String),
 }

@@ -3,7 +3,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { Download } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { type LogEntry } from '@/types';
 
@@ -63,8 +63,7 @@ export function LogPanel({ logs }: LogPanelProps) {
 
   return (
     <Card size="sm" className="overflow-hidden flex flex-col h-full">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-sm font-medium">Activity</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-end">
         <Button
           variant="ghost"
           size="icon"

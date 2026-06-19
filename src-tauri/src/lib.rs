@@ -3,11 +3,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "typescript")]
+use ts_rs::TS;
 use tauri::Manager;
 
 mod commands;
 mod history;
-mod ocr_engine;
+pub mod ocr_engine;
 mod queue;
 mod security;
 use ocr_engine::runtime::RuntimeResources;
@@ -19,6 +21,15 @@ use tauri_plugin_dialog::init as dialog_init;
 pub struct CommandError {
     pub kind: String,
     pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
+#[serde(rename_all = "camelCase")]
+pub struct FileEncryptionInfo {
+    pub encrypted: bool,
+    pub file_id: String,
 }
 
 impl CommandError {
@@ -61,12 +72,16 @@ impl fmt::Display for CommandError {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct FileMetadata {
     pub size: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct OcrOptions {
     pub output_type: OutputType,
@@ -83,9 +98,21 @@ pub struct OcrOptions {
     pub archive_enforcement: bool,
     pub languages: Option<String>,
     pub memory_pages: Option<usize>,
+    pub continue_on_error: bool,
+    pub password: Option<String>,
+}
+
+impl OcrOptions {
+    pub fn without_password(&self) -> Self {
+        let mut opts = self.clone();
+        opts.password = None;
+        opts
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "lowercase")]
 pub enum OutputType {
     Pdfa,
@@ -93,6 +120,8 @@ pub enum OutputType {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct EnqueuePayload {
     pub files: Vec<String>,
@@ -102,6 +131,8 @@ pub struct EnqueuePayload {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct Job {
     pub id: String,
@@ -117,6 +148,8 @@ pub struct Job {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "lowercase")]
 pub enum JobStatus {
     Queued,
@@ -127,6 +160,8 @@ pub enum JobStatus {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct QueueState {
     pub jobs: Vec<Job>,
@@ -134,6 +169,8 @@ pub struct QueueState {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "typescript", derive(TS))]
+#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
     pub id: String,
@@ -290,7 +327,8 @@ pub fn run() {
             commands::write_log_file,
             commands::get_file_metadata,
             commands::log_window_shown,
-            commands::ensure_language_packs
+            commands::ensure_language_packs,
+            commands::check_file_encrypted
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

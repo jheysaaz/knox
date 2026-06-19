@@ -15,12 +15,9 @@ const makeFile = (overrides: Partial<FileItem> = {}): FileItem => ({
 
 describe('QueueView', () => {
   const onFileRemove = vi.fn();
-  const onClear = vi.fn();
 
   it('shows empty state', () => {
-    render(
-      <QueueView files={[]} onFileRemove={onFileRemove} onClear={onClear} />,
-    );
+    render(<QueueView files={[]} onFileRemove={onFileRemove} />);
     expect(screen.getByText('No files added yet')).toBeInTheDocument();
   });
 
@@ -29,7 +26,6 @@ describe('QueueView', () => {
       <QueueView
         files={[makeFile({ name: 'test.pdf' })]}
         onFileRemove={onFileRemove}
-        onClear={onClear}
       />,
     );
     expect(screen.getByText('test.pdf')).toBeInTheDocument();
@@ -44,12 +40,7 @@ describe('QueueView', () => {
       makeFile({ id: '5', status: 'paused' }),
     ];
     render(
-      <QueueView
-        files={files}
-        onFileRemove={onFileRemove}
-        onClear={onClear}
-        isRunning={true}
-      />,
+      <QueueView files={files} onFileRemove={onFileRemove} isRunning={true} />,
     );
     expect(screen.getByText('Pending')).toBeInTheDocument();
     expect(screen.getByText('Processing...')).toBeInTheDocument();
@@ -63,7 +54,6 @@ describe('QueueView', () => {
       <QueueView
         files={[makeFile({ id: '1', name: 'doc.pdf' })]}
         onFileRemove={onFileRemove}
-        onClear={onClear}
       />,
     );
     const user = userEvent.setup();
@@ -73,42 +63,15 @@ describe('QueueView', () => {
     expect(onFileRemove).toHaveBeenCalledWith('1');
   });
 
-  it('calls onClear when clear button clicked', async () => {
-    render(
-      <QueueView
-        files={[makeFile({ id: '1' })]}
-        onFileRemove={onFileRemove}
-        onClear={onClear}
-      />,
-    );
-    const user = userEvent.setup();
-    await user.click(screen.getByText('Clear'));
-    expect(onClear).toHaveBeenCalled();
-  });
-
   it('shows progress bar for processing files', () => {
     render(
       <QueueView
         files={[makeFile({ id: '1', status: 'processing', progress: 50 })]}
         onFileRemove={onFileRemove}
-        onClear={onClear}
         isRunning={true}
       />,
     );
     const progressBar = document.querySelector('[role="progressbar"]');
     expect(progressBar).toBeInTheDocument();
-  });
-
-  it('shows Pause button when running', () => {
-    render(
-      <QueueView
-        files={[makeFile({ id: '1', status: 'processing' })]}
-        onFileRemove={onFileRemove}
-        onClear={onClear}
-        isRunning={true}
-        onStop={vi.fn()}
-      />,
-    );
-    expect(screen.getByText('Pause')).toBeInTheDocument();
   });
 });

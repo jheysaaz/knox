@@ -168,6 +168,7 @@ fn extract_page_image(
     page_number: u32,
     existing_text: ExistingTextMode,
     dpi: u16,
+    password: Option<&str>,
 ) -> Result<Option<GrayImage>, PipelineError> {
     if matches!(existing_text, ExistingTextMode::Skip) {
         if let Some(&page_id) = document.get_pages().get(&page_number) {
@@ -177,7 +178,7 @@ fn extract_page_image(
         }
     }
     tracing::debug!(target: "knox::engine", page = page_number, dpi = dpi, "step: pdfium render_page");
-    match pdfium.render_page(pdf_path, page_number - 1, dpi) {
+    match pdfium.render_page(pdf_path, page_number - 1, dpi, password) {
         Ok(Some(img)) => {
             tracing::debug!(target: "knox::engine", page = page_number, w = img.width(), h = img.height(), "step: pdfium render ok");
             return Ok(Some(img));
@@ -218,7 +219,7 @@ struct ProcessFileArgs {
 }
 
 /// Intermediate result from the parallel render+preprocess phase.
-#[allow(dead_code)]
+#[cfg_attr(not(feature = "ocr"), allow(dead_code))]
 struct PagePrep {
     page_number: u32,
     base_image: GrayImage,
@@ -238,7 +239,7 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
     tracing::info!(target: "knox::engine", job_id, replacement = do_replacement, "starting file processing");
     tracker.emit(&app, job_id.clone(), PipelineStatus::Processing, 0, 0, None);
 
-    let document = load_document(input_path)?;
+    let document = load_document(input_path, settings.password.as_deref())?;
     let total_pages = document.get_pages().len() as u32;
     tracing::info!(target: "knox::engine", job_id, total_pages, "document loaded");
 
@@ -258,26 +259,39 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
         .collect();
 
     if active_pages.is_empty() {
-        tracing::info!(target: "knox::engine", job_id, "all pages have existing text, nothing to do");
+        tracing::info!(target: "knox::engine", job_id, "all pages have existing text, saving as-is");
+        let mut document = document;
+        finalize(&mut document, &output_path, settings.archive_enforcement)
+            .map_err(|e| PipelineError::PdfParse(format!("save failed: {e}")))?;
+        if !output_path.exists() {
+            return Err(PipelineError::PdfParse(format!(
+                "output file not found after save: {}",
+                output_path.display()
+            )));
+        }
         tracker.emit(&app, job_id, PipelineStatus::Completed, total_pages, total_pages, None);
+        tracker.record_file_done();
         return Ok(());
     }
 
     // --- Phase 2: Parallel render + preprocess (rayon) ---
     let start = Instant::now();
-    let prep_results: Vec<PagePrep> = {
+    let errors_bucket: std::sync::Arc<std::sync::Mutex<Vec<(u32, String)>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let page_preps: Vec<PagePrep> = {
         let pool = &pool;
         let pdfium = &pdfium;
         let document = &document;
         let settings = &settings;
         let app = &app;
         let tracker = &tracker;
+        let errors_bucket = errors_bucket.clone();
         pool.install(|| {
             active_pages
                 .par_iter()
-                .map(|&page_number| {
+                .filter_map(|&page_number| {
                     if cancelled.load(Ordering::SeqCst) {
-                        return Err(PipelineError::Cancelled);
+                        return None;
                     }
                     tracker.emit(
                         app,
@@ -289,36 +303,78 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
                     );
                     let (page_w_pt, page_h_pt) = page_dimensions_pt(document, page_number);
                     let render_dpi = compute_render_dpi(settings.resolution_dpi, page_w_pt, page_h_pt);
-                    let base_image = match extract_page_image(
+                    match extract_page_image(
                         pdfium, document, input_path, page_number,
-                        ExistingTextMode::Rasterize, // already filtered above
+                        ExistingTextMode::Rasterize,
                         render_dpi,
-                    )? {
-                        Some(img) => img,
-                        None => return Err(PipelineError::PdfParse(
-                            format!("page {page_number}: no image found after text filter"),
-                        )),
-                    };
-                    let max_dim = base_image.width().max(base_image.height());
-                    let use_fast = max_dim > 2000
-                        || base_image.pixels().map(|p| p.0[0] as u64).sum::<u64>()
-                            / base_image.width().max(1) as u64
-                            / base_image.height().max(1) as u64
-                            > 200;
-                    let processed = preprocess(&base_image, settings, use_fast)?;
-                    Ok(PagePrep {
-                        page_number,
-                        base_image,
-                        processed,
-                        effective_dpi: render_dpi,
-                    })
+                        settings.password.as_deref(),
+                    ) {
+                        Ok(Some(base_image)) => {
+                            let max_dim = base_image.width().max(base_image.height());
+                            let use_fast = max_dim > 2000
+                                || base_image.pixels().map(|p| p.0[0] as u64).sum::<u64>()
+                                    / base_image.width().max(1) as u64
+                                    / base_image.height().max(1) as u64
+                                    > 200;
+                            match preprocess(&base_image, settings, use_fast) {
+                                Ok(processed) => Some(PagePrep {
+                                    page_number,
+                                    base_image,
+                                    processed,
+                                    effective_dpi: render_dpi,
+                                }),
+                                Err(e) => {
+                                    let msg = e.to_string();
+                                    tracing::warn!(target: "knox::engine", job_id, page = page_number, error = %msg, "preprocess failed");
+                                    if let Ok(mut bucket) = errors_bucket.lock() {
+                                        bucket.push((page_number, msg));
+                                    }
+                                    None
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            let msg = format!("page {page_number}: no image found");
+                            tracing::warn!(target: "knox::engine", job_id, page = page_number, "no image found");
+                            if let Ok(mut bucket) = errors_bucket.lock() {
+                                bucket.push((page_number, msg));
+                            }
+                            None
+                        }
+                        Err(e) => {
+                            let msg = format!("page {page_number}: {e}");
+                            tracing::warn!(target: "knox::engine", job_id, page = page_number, error = %msg, "extract failed");
+                            if let Ok(mut bucket) = errors_bucket.lock() {
+                                bucket.push((page_number, msg));
+                            }
+                            None
+                        }
+                    }
                 })
-                .collect::<Result<Vec<_>, PipelineError>>()
-        })?
+                .collect::<Vec<PagePrep>>()
+                })
     };
+
+    #[allow(unused_mut)]
+    let mut page_errors = std::sync::Arc::into_inner(errors_bucket)
+        .unwrap()
+        .into_inner()
+        .unwrap_or_default();
+
+    if !page_errors.is_empty() && !settings.continue_on_error {
+        let (pn, msg) = page_errors.into_iter().next().unwrap();
+        return Err(PipelineError::PdfParse(format!("page {pn}: {msg}")));
+    }
+    if page_preps.is_empty() && !page_errors.is_empty() {
+        return Err(PipelineError::PdfParse(format!(
+            "all {} page(s) failed",
+            page_errors.len(),
+        )));
+    }
+
     let prep_elapsed = start.elapsed().as_millis();
     tracing::info!(
-        target: "knox::engine", job_id, pages = active_pages.len(), prep_elapsed,
+        target: "knox::engine", job_id, pages = active_pages.len(), prepped = page_preps.len(), errors = page_errors.len(), prep_elapsed,
         "parallel render+preprocess done"
     );
 
@@ -354,7 +410,7 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
         tess.set_page_seg_mode(settings.psm.into())?;
 
         let ocr_start = Instant::now();
-        for prep in &prep_results {
+        for prep in &page_preps {
             if cancelled.load(Ordering::SeqCst) {
                 return Err(PipelineError::Cancelled);
             }
@@ -367,34 +423,54 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
                 None,
             );
 
-            let ocr_image = &prep.base_image;
-            tess.set_image_bytes(
-                ocr_image.as_raw(),
-                ocr_image.width() as i32,
-                ocr_image.height() as i32,
-                1,
-                ocr_image.width() as i32,
-            )?;
-            tess.set_source_resolution(prep.effective_dpi as u32)?;
-            let _ = tess.get_text()?;
-            let min_confidence = 30.0;
-            let words = tess.get_words()?.into_iter().filter(|w| w.confidence >= min_confidence).collect::<Vec<_>>();
-            let (img_w, img_h) = (ocr_image.width(), ocr_image.height());
-            text_layers.insert(prep.page_number, (words, img_w, img_h));
+            let page_result: Result<(), PipelineError> = (|| {
+                let ocr_image = &prep.base_image;
+                tess.set_image_bytes(
+                    ocr_image.as_raw(),
+                    ocr_image.width() as i32,
+                    ocr_image.height() as i32,
+                    1,
+                    ocr_image.width() as i32,
+                )?;
+                tess.set_source_resolution(prep.effective_dpi as u32)?;
+                let _ = tess.get_text()?;
+                let min_confidence = 30.0;
+                let words = tess.get_words()?.into_iter().filter(|w| w.confidence >= min_confidence).collect::<Vec<_>>();
+                let (img_w, img_h) = (ocr_image.width(), ocr_image.height());
+                text_layers.insert(prep.page_number, (words, img_w, img_h));
 
-            if do_replacement {
-                let processed = &prep.processed;
-                let replace_image = &processed.ocr_image;
-                let stream = if let Some(ref bitonal) = processed.bitonal {
-                    encode_ccitt_g4(bitonal.width, bitonal.height, bitonal.data.clone())?
-                } else {
-                    encode_flate(replace_image.width(), replace_image.height(), replace_image.to_vec())?
-                };
-                replacements.insert(prep.page_number, stream);
+                if do_replacement {
+                    let processed = &prep.processed;
+                    let replace_image = &processed.ocr_image;
+                    let stream = if let Some(ref bitonal) = processed.bitonal {
+                        encode_ccitt_g4(bitonal.width, bitonal.height, bitonal.data.clone())?
+                    } else {
+                        encode_flate(replace_image.width(), replace_image.height(), replace_image.to_vec())?
+                    };
+                    replacements.insert(prep.page_number, stream);
+                }
+                Ok(())
+            })();
+
+            match page_result {
+                Ok(()) => {
+                    let page_elapsed = ocr_start.elapsed().as_millis() as u64;
+                    tracker.record_page_time(page_elapsed);
+                }
+                Err(e) if settings.continue_on_error => {
+                    tracing::warn!(target: "knox::engine", job_id, page = prep.page_number, error = %e, "skipping OCR page due to continue_on_error");
+                    page_errors.push((prep.page_number, e.to_string()));
+                }
+                Err(e) => {
+                    // Return TessApi to pool before propagating
+                    if let Ok(mut pool_guard) = tess_pool.lock() {
+                        if pool_guard.is_none() {
+                            *pool_guard = Some(tess);
+                        }
+                    }
+                    return Err(e);
+                }
             }
-
-            let page_elapsed = ocr_start.elapsed().as_millis() as u64;
-            tracker.record_page_time(page_elapsed);
         }
         let ocr_elapsed = ocr_start.elapsed().as_millis();
         tracing::info!(target: "knox::engine", job_id, ocr_elapsed, "sequential OCR done");
@@ -417,7 +493,7 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
     #[cfg(not(feature = "ocr"))]
     {
         // Without OCR feature: only do image replacement, no text layers
-        for prep in &prep_results {
+        for prep in &page_preps {
             if do_replacement {
                 let processed = &prep.processed;
                 let replace_image = &processed.ocr_image;

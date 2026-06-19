@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from 'react';
 import { Toaster } from 'sonner';
 import type { ProfileValues } from '@/components/advanced-options';
 import { Header } from '@/components/header';
+import { PasswordDialog } from '@/components/password-dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { GREETING } from '@/hooks/useGreeting';
@@ -11,18 +12,18 @@ import { useQueue } from '@/hooks/useQueue';
 const LeftPanel = lazy(() => import('./components/left-panel'));
 const RightPanel = lazy(() => import('./components/right-panel'));
 
+/** macOS overlay title bar safe zone — only needed when titleBarStyle: "Overlay" (macOS-only). */
+const SAFE_ZONE_TOP = navigator.userAgent.includes('Mac') ? 38 : 0;
+
 export default function App() {
   const { logs, addLog } = useLogger();
   const {
     files,
     outputDir,
     setOutputDir,
-    showActivity,
-    setShowActivity,
     isRunning,
     starting,
     history,
-    showHistory,
     handleFilesAdded,
     handleFileRemove,
     handleFileReprocess,
@@ -30,7 +31,10 @@ export default function App() {
     handleStart,
     handleStop,
     handleClearHistory,
-    handleToggleHistory,
+    passwordDialogOpen,
+    pendingEncryptedFiles,
+    handlePasswordConfirm,
+    handlePasswordCancel,
   } = useQueue(addLog);
   const [settings, setSettings] = useState<ProfileValues>({
     memoryPages: 30,
@@ -40,26 +44,25 @@ export default function App() {
     denoiseLevel: 2,
     existingText: 'skip',
     psm: 'auto',
-    compression: 'ccitt',
+    compression: 'flate',
     resolution: '300',
     archiveEnforcement: false,
     languages: ['eng', 'spa'],
     safeMode: false,
+    continueOnError: false,
   });
+  const [activeTab, setActiveTab] = useState('queue');
 
   return (
     <>
       <TooltipProvider>
-        <div className="flex gap-6 pt-10 pr-6 pb-6 pl-6 h-dvh overflow-hidden">
+        <div
+          className="flex gap-6 lg:gap-8 xl:gap-12 px-6 lg:px-10 xl:px-16 pb-6 h-dvh overflow-hidden max-w-[1600px] mx-auto"
+          style={{ paddingTop: SAFE_ZONE_TOP > 0 ? SAFE_ZONE_TOP : undefined }}
+        >
           <div className="flex-[3] min-w-0 flex flex-col min-h-0">
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <Header
-                greeting={GREETING}
-                showActivity={showActivity}
-                onToggleActivity={() => setShowActivity((v) => !v)}
-                showHistory={showHistory}
-                onToggleHistory={handleToggleHistory}
-              />
+            <div className="flex-1 min-h-0 overflow-y-auto p-[3px] -m-[3px]">
+              <Header greeting={GREETING} />
               <Suspense fallback={<Spinner />}>
                 <LeftPanel
                   onFilesAdded={handleFilesAdded}
@@ -75,6 +78,8 @@ export default function App() {
             </div>
           </div>
 
+          <div className="hidden lg:block w-px bg-border self-stretch shrink-0" />
+
           <div className="flex-[2] min-w-0 flex flex-col gap-2">
             <Suspense fallback={<Spinner />}>
               <RightPanel
@@ -84,18 +89,24 @@ export default function App() {
                 onReprocess={handleFileReprocess}
                 isRunning={isRunning}
                 onStop={handleStop}
-                showActivity={showActivity}
-                showHistory={showHistory}
                 logs={logs}
                 history={history}
                 onClearHistory={handleClearHistory}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
               />
             </Suspense>
           </div>
         </div>
       </TooltipProvider>
+      <PasswordDialog
+        open={passwordDialogOpen}
+        fileNames={pendingEncryptedFiles.map((f) => f.name)}
+        onConfirm={handlePasswordConfirm}
+        onCancel={handlePasswordCancel}
+      />
       <Toaster
-        position="top-right"
+        position="bottom-right"
         duration={5000}
         toastOptions={{
           classNames: {

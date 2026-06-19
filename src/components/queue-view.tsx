@@ -6,11 +6,10 @@ import {
   Loader2,
   PauseCircle,
   RotateCw,
-  Square,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import { type FileItem } from '@/types';
@@ -19,9 +18,7 @@ import { type FileItem } from '@/types';
 interface QueueViewProps {
   files: FileItem[];
   onFileRemove: (id: string) => void;
-  onClear: () => void;
   onReprocess?: (id: string) => void;
-  onStop?: () => void;
   isRunning?: boolean;
 }
 
@@ -29,9 +26,7 @@ interface QueueViewProps {
 export function QueueView({
   files,
   onFileRemove,
-  onClear,
   onReprocess,
-  onStop,
   isRunning = true,
 }: QueueViewProps) {
   const formatFileSize = (bytes: number) => {
@@ -77,33 +72,6 @@ export function QueueView({
 
   return (
     <Card size="sm" className="flex flex-col overflow-hidden h-full">
-      <CardHeader className="flex flex-row items-center justify-between px-3 py-1.5">
-        <CardTitle className="text-sm font-medium">Queue</CardTitle>
-        <div className="flex items-center gap-1">
-          {isRunning && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onStop}
-              className="h-auto py-1 px-2 text-xs text-destructive hover:text-destructive"
-            >
-              <Square className="h-3 w-3 mr-1" />
-              Pause
-            </Button>
-          )}
-          {files.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onClear}
-              disabled={files.some((f) => f.status === 'processing')}
-              className="h-auto py-1 px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              Clear
-            </Button>
-          )}
-        </div>
-      </CardHeader>
       <CardContent className="flex-1 overflow-y-auto px-3 pb-3">
         {files.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">

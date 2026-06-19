@@ -1,3 +1,5 @@
+import { Play } from 'lucide-react';
+import { useEffect } from 'react';
 import {
   AdvancedOptions,
   type ProfileValues,
@@ -29,6 +31,16 @@ function LeftPanel({
   starting,
   onStart,
 }: LeftPanelProps) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === 'Enter') {
+        e.preventDefault();
+        onStart(settings);
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onStart, settings]);
   return (
     <div className="space-y-4">
       <FileDropZone onFilesAdded={onFilesAdded} />
@@ -37,6 +49,7 @@ function LeftPanel({
       <Button
         className="w-full"
         size="lg"
+        variant="default"
         onClick={() => onStart(settings)}
         disabled={starting}
       >
@@ -47,7 +60,10 @@ function LeftPanel({
         ) : isRunning ? (
           'Add to Queue'
         ) : (
-          'Start OCR Processing'
+          <span className="flex items-center gap-2">
+            <Play className="h-4 w-4" />
+            Start Queue
+          </span>
         )}
       </Button>
     </div>

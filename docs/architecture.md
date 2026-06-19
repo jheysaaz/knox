@@ -24,10 +24,10 @@
 | `get_status` | — | `QueueState` | Current queue state |
 | `get_history` | — | `Vec<HistoryEntry>` | Job history |
 | `clear_history` | — | `()` | Clear history |
-| `set_runner_path` | `path: String` | `RunnerStatus` | Set sidecar path |
-| `get_runner_status` | — | `RunnerStatus` | Sidecar config status |
 | `write_log_file` | `path, content: String` | `()` | Write log to disk |
 | `get_file_metadata` | `path: String` | `FileMetadata` | Get file size |
+| `log_window_shown` | — | `()` | Log TTI measurement on first paint |
+| `ensure_language_packs` | `languages: Vec<String>` | `LanguagePackResult` | Download missing Tesseract traineddata |
 
 ## Event Types
 - `pipeline-progress` — Per-page progress during OCR
