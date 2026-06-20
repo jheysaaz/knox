@@ -143,7 +143,7 @@ jobs:
         run: |
           set -e
           pnpm build
-          vitest run --coverage
+          pnpm test:coverage
 
       # ── Upload coverage reports ──────────────────────────────────────
       - name: Upload coverage to Codecov
