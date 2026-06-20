@@ -18,6 +18,7 @@ concurrency:
 jobs:
   # ── Detect which files changed ──────────────────────────────────────────
   changes:
+    name: Filter based on Changes
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,6 +36,7 @@ jobs:
 
   # ── Frontend (always — fast, no Rust) ──────────────────────────────────
   frontend:
+    name: Frontend CI
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +57,7 @@ jobs:
 
   # ── Backend (only when Rust files change) ──────────────────────────────
   backend:
+    name: Backend CI
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     strategy:
