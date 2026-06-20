@@ -93,7 +93,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # ── Platform System Dependencies ──────────────────────────────────
       # tesseract-sys & leptonica-sys use pkg-config on macOS, vcpkg on Windows.
@@ -125,7 +125,7 @@ jobs:
       - name: Restore vcpkg binary cache (Windows)
         if: matrix.os == 'windows-latest'
         id: vcpkg-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}\vcpkg-cache
           key: vcpkg-${{ runner.os }}-${{ hashFiles('src-tauri/vcpkg.json') }}
@@ -137,12 +137,12 @@ jobs:
         run: vcpkg install tesseract leptonica
 
       # ── Tools ─────────────────────────────────────────────────────────
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10
+          version: latest
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -161,7 +161,7 @@ jobs:
       # and the app ships self-contained (no system tessdata required).
       - name: Cache tessdata
         id: cache-tessdata
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: src-tauri/tessdata
           key: tessdata-${{ runner.os }}
@@ -181,7 +181,7 @@ jobs:
       # The tauri.conf.json resource glob requires these files to exist.
       - name: Cache pdfium
         id: cache-pdfium
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: src-tauri/pdfium
           key: pdfium-${{ runner.os }}
@@ -223,7 +223,7 @@ jobs:
       # ── Artifact Upload ──────────────────────────────────────────────
       # Always runs (tag push + manual dispatch).
       # Manual dispatch users download from the workflow run summary page.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: knox-bundle-${{ matrix.bundle-ext }}
           path: src-tauri/target/release/bundle/**
@@ -240,7 +240,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: knox-bundle-*
           path: bundles
@@ -251,7 +251,7 @@ jobs:
           echo "=== Bundle artifacts for release ==="
           find bundles -type f -ls
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: v${{ needs.setup.outputs.version }}
           tag_name: v${{ needs.setup.outputs.version }}
