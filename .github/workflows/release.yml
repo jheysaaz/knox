@@ -57,7 +57,7 @@ jobs:
           fi
 
       # ── Matrix ─────────────────────────────────────────────────────────
-      # Tag push   → all three platforms.
+      # Tag push   → macOS + Windows.
       # Dispatch   → only the OSes the user ticked.
       - id: build-matrix
         shell: bash
@@ -91,6 +91,8 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    env:
+      RUSTC_WRAPPER: sccache
 
     steps:
       - uses: actions/checkout@v7
@@ -209,8 +211,6 @@ jobs:
       # ── Build ─────────────────────────────────────────────────────────
       # tauri-action builds and emits bundles under
       #   src-tauri/target/release/bundle/<platform>/
-      # The recursive glob bundle/** picks up all installer types
-      # (.dmg, .deb, .AppImage, .msi, .exe) regardless of subdirectory.
       - uses: tauri-apps/tauri-action@v0
         id: tauri_build
         env:
@@ -246,16 +246,32 @@ jobs:
           path: bundles
           merge-multiple: true
 
-      - name: List bundles
+      - name: Flatten bundles
         run: |
-          echo "=== Bundle artifacts for release ==="
+          mkdir -p bundles/flat
+          # Merge latest.json from all platform subdirectories
+          files=()
+          for f in bundles/*/latest.json; do
+            [ -f "$f" ] && files+=("$f")
+          done
+          if [ ${#files[@]} -eq 1 ]; then
+            cp "${files[0]}" bundles/latest.json
+          elif [ ${#files[@]} -ge 2 ]; then
+            jq -n 'reduce inputs as $i ({}; . * $i | .platforms = (.platforms + $i.platforms))' "${files[@]}" > bundles/latest.json
+          fi
+          # Flatten all other files to root
+          find bundles -type f ! -name 'latest.json' ! -path 'bundles/flat/*' -exec sh -c 'mv "$1" bundles/flat/' _ {} \;
+          mv bundles/flat/* bundles/ 2>/dev/null || true
+          rmdir bundles/flat 2>/dev/null || true
+          find bundles -mindepth 1 -type d -exec rm -rf {} \; 2>/dev/null || true
+          echo "=== Flattened bundles ==="
           find bundles -type f -ls
 
       - uses: softprops/action-gh-release@v3
         with:
           name: v${{ needs.setup.outputs.version }}
           tag_name: v${{ needs.setup.outputs.version }}
-          files: bundles/**
+          files: bundles/*
           generate_release_notes: true
           fail_on_unmatched_files: true
         env:
