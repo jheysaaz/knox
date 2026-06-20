@@ -1,6 +1,6 @@
 [package]
 name = "knox"
-version = "1.0.0"
+version = "0.1.0"
 description = "Knox - PDFs desktop app"
 authors = ["Jheyson Saavedra"]
 edition = "2024"
