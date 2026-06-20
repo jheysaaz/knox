@@ -1,5 +1,7 @@
 # Knox
 
+[![codecov](https://codecov.io/gh/jheysaaz/knox/graph/badge.svg?token=0QLJXF8RNQ)](https://codecov.io/gh/jheysaaz/knox)
+
 Offline desktop app for batch OCR, cleaning, and compression of PDFs using a Rust-native pipeline (Tesseract FFI).
 
 ## Features
