@@ -20,7 +20,7 @@ detect_archive() {
 
     case "$os-$arch" in
         Darwin-arm64)  echo "pdfium-mac-arm64.tgz" ;;
-        MINGW*|MSYS*|*-x86_64) echo "pdfium-win-x64.zip" ;;
+        MINGW*|MSYS*|*-x86_64) echo "pdfium-win-x64.tgz" ;;
         *)
             echo "Unsupported platform: $os-$arch" >&2
             exit 1
