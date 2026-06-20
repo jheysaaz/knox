@@ -6,6 +6,7 @@ on:
   pull_request:
   schedule:
     - cron: '0 6 * * 1'  # weekly Monday 6am UTC — warm caches
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -32,6 +33,7 @@ jobs:
           filters: |
             backend:
               - 'src-tauri/**'
+              - 'scripts/**'
               - '.github/workflows/ci.yml'
 
   # ── Frontend (always — fast, no Rust) ──────────────────────────────────
