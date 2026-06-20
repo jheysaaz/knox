@@ -47,7 +47,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: vitest run --coverage
+      - run: pnpm vitest run --coverage
       - uses: codecov/codecov-action@v5
         with:
           files: coverage/lcov.info
