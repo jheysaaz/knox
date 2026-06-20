@@ -54,6 +54,8 @@ jobs:
         with:
           files: coverage/lcov.info
           fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # ── Backend (only when Rust files change) ──────────────────────────────
   backend:
@@ -183,3 +185,5 @@ jobs:
         with:
           files: src-tauri/lcov.info
           fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
