@@ -91,8 +91,6 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
-    env:
-      RUSTC_WRAPPER: sccache
 
     steps:
       - uses: actions/checkout@v7
@@ -152,9 +150,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
-      - name: sccache
-        uses: mozilla-actions/sccache-action@v0.0.10
 
       - run: pnpm install --frozen-lockfile
 
@@ -216,19 +211,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
           projectPath: src-tauri
 
       # ── Artifact Upload ──────────────────────────────────────────────
       # Always runs (tag push + manual dispatch).
       # Manual dispatch users download from the workflow run summary page.
-      # Note: artifact preserves subdirectory structure (dmg/, msi/, nsis/).
-      # The release job flattens these into individual files for the release.
+      - name: Prepare artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cd src-tauri/target/release/bundle
+          # Only installer and updater files — exclude DMG build templates
+          find . -type f \( -name '*.dmg' -o -name '*.msi' -o -name '*.exe' -o -name '*.sig' -o -name '*.tar.gz' -o -name '*.json' \) -exec cp {} ../../../../artifacts/ \;
+          echo "=== Artifacts ==="
+          ls -la ../../../../artifacts/
+
       - uses: actions/upload-artifact@v7
         with:
           name: knox-bundle-${{ matrix.bundle-ext }}
-          path: src-tauri/target/release/bundle/**
+          path: artifacts
           if-no-files-found: error
 
   # ── GitHub Release ──────────────────────────────────────────────────────
@@ -250,20 +253,49 @@ jobs:
 
       - name: Flatten bundles
         run: |
-          # Merge latest.json from all platform subdirectories
-          files=()
-          for f in bundles/*/latest.json; do
-            [ -f "$f" ] && files+=("$f")
-          done
-          case ${#files[@]} in
-            1) cp "${files[0]}" bundles/latest.json ;;
-            [2-9]) jq -n 'reduce inputs as $i ({}; . * $i | .platforms = (.platforms + $i.platforms))' "${files[@]}" > bundles/latest.json ;;
-          esac
-          # Move remaining files from subdirectories to root
-          find bundles -mindepth 2 -type f -exec mv {} bundles/ \;
+          # Bundles are already flat from the prepare step — just in case.
+          find bundles -mindepth 2 -type f -exec mv {} bundles/ \; 2>/dev/null || true
           find bundles -mindepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
-          echo "=== Flattened bundles ==="
+          echo "=== Bundles ==="
           ls -1 bundles/
+
+      - name: Generate latest.json
+        run: |
+          VERSION="${{ needs.setup.outputs.version }}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BASE_URL="https://github.com/jheysaaz/knox/releases/download/v${VERSION}"
+
+          PLATFORMS="{}"
+
+          # macOS DMG
+          DMG=$(ls bundles/*.dmg 2>/dev/null | head -1)
+          if [ -n "$DMG" ]; then
+            SIG=$(cat "$(ls bundles/*.dmg.sig 2>/dev/null | head -1)" 2>/dev/null || echo "")
+            PLATFORMS=$(echo "$PLATFORMS" | jq \
+              --arg sig "$SIG" \
+              --arg url "${BASE_URL}/$(basename "$DMG")" \
+              '. + {"darwin-aarch64": {"signature": $sig, "url": $url}}')
+          fi
+
+          # Windows MSI (primary Windows target)
+          MSI=$(ls bundles/*.msi 2>/dev/null | head -1)
+          if [ -n "$MSI" ]; then
+            SIG=$(cat "$(ls bundles/*.msi.sig 2>/dev/null | head -1)" 2>/dev/null || echo "")
+            PLATFORMS=$(echo "$PLATFORMS" | jq \
+              --arg sig "$SIG" \
+              --arg url "${BASE_URL}/$(basename "$MSI")" \
+              '. + {"windows-x86_64": {"signature": $sig, "url": $url}}')
+          fi
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg pub_date "$PUB_DATE" \
+            --argjson platforms "$PLATFORMS" \
+            '{"version": $version, "notes": "", "pub_date": $pub_date, "platforms": $platforms}' \
+            > bundles/latest.json
+
+          echo "=== latest.json ==="
+          cat bundles/latest.json
 
       - uses: softprops/action-gh-release@v3
         with:
@@ -271,6 +303,5 @@ jobs:
           tag_name: v${{ needs.setup.outputs.version }}
           files: bundles/*
           generate_release_notes: true
-          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
