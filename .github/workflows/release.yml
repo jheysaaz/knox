@@ -121,7 +121,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $cacheDir
           echo "VCPKG_ROOT=C:\vcpkg" | Out-File -Append -FilePath $env:GITHUB_ENV
           echo "VCPKG_DEFAULT_TRIPLET=x64-windows-static-md" | Out-File -Append -FilePath $env:GITHUB_ENV
-          echo "VCPKG_BINARY_SOURCES=clear;files,$cacheDir,readwrite" | Out-File -Append -FilePath $env:GITHUB_ENV
+          echo "VCPKG_BINARY_SOURCES=files,$cacheDir,readwrite" | Out-File -Append -FilePath $env:GITHUB_ENV
           echo "VCPKG_MAX_CONCURRENT=$env:NUMBER_OF_PROCESSORS" | Out-File -Append -FilePath $env:GITHUB_ENV
 
       - name: Restore vcpkg binary cache (Windows)
@@ -223,6 +223,8 @@ jobs:
       # ── Artifact Upload ──────────────────────────────────────────────
       # Always runs (tag push + manual dispatch).
       # Manual dispatch users download from the workflow run summary page.
+      # Note: artifact preserves subdirectory structure (dmg/, msi/, nsis/).
+      # The release job flattens these into individual files for the release.
       - uses: actions/upload-artifact@v7
         with:
           name: knox-bundle-${{ matrix.bundle-ext }}
@@ -248,24 +250,20 @@ jobs:
 
       - name: Flatten bundles
         run: |
-          mkdir -p bundles/flat
           # Merge latest.json from all platform subdirectories
           files=()
           for f in bundles/*/latest.json; do
             [ -f "$f" ] && files+=("$f")
           done
-          if [ ${#files[@]} -eq 1 ]; then
-            cp "${files[0]}" bundles/latest.json
-          elif [ ${#files[@]} -ge 2 ]; then
-            jq -n 'reduce inputs as $i ({}; . * $i | .platforms = (.platforms + $i.platforms))' "${files[@]}" > bundles/latest.json
-          fi
-          # Flatten all other files to root
-          find bundles -type f ! -name 'latest.json' ! -path 'bundles/flat/*' -exec sh -c 'mv "$1" bundles/flat/' _ {} \;
-          mv bundles/flat/* bundles/ 2>/dev/null || true
-          rmdir bundles/flat 2>/dev/null || true
-          find bundles -mindepth 1 -type d -exec rm -rf {} \; 2>/dev/null || true
+          case ${#files[@]} in
+            1) cp "${files[0]}" bundles/latest.json ;;
+            [2-9]) jq -n 'reduce inputs as $i ({}; . * $i | .platforms = (.platforms + $i.platforms))' "${files[@]}" > bundles/latest.json ;;
+          esac
+          # Move remaining files from subdirectories to root
+          find bundles -mindepth 2 -type f -exec mv {} bundles/ \;
+          find bundles -mindepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
           echo "=== Flattened bundles ==="
-          find bundles -type f -ls
+          ls -1 bundles/
 
       - uses: softprops/action-gh-release@v3
         with:
