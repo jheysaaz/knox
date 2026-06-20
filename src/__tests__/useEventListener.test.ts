@@ -200,6 +200,49 @@ describe('useEventListener', () => {
     );
   });
 
+  it('calls onJobError when a job fails', async () => {
+    const onJobError = vi.fn();
+    const { result } = renderHook(() =>
+      useEventListener(setFiles, addLog, undefined, onJobError),
+    );
+    await act(async () => {
+      await result.current.ensureListeners();
+    });
+    act(() => {
+      emitEvent('jobFinished', {
+        id: 'job-1',
+        inputPath: '/in.pdf',
+        outputPath: '/out.pdf',
+        status: 'failed',
+        percent: 30,
+        errorMessage: 'timeout',
+        options: {},
+      });
+    });
+    expect(onJobError).toHaveBeenCalledWith('/in.pdf', 'timeout');
+  });
+
+  it('does not call onJobError for completed jobs', async () => {
+    const onJobError = vi.fn();
+    const { result } = renderHook(() =>
+      useEventListener(setFiles, addLog, undefined, onJobError),
+    );
+    await act(async () => {
+      await result.current.ensureListeners();
+    });
+    act(() => {
+      emitEvent('jobFinished', {
+        id: 'job-1',
+        inputPath: '/in.pdf',
+        outputPath: '/out.pdf',
+        status: 'completed',
+        percent: 100,
+        options: {},
+      });
+    });
+    expect(onJobError).not.toHaveBeenCalled();
+  });
+
   it('handles historyUpdated event', async () => {
     const { result } = renderHook(() => useEventListener(setFiles, addLog));
     await act(async () => {

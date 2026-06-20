@@ -32,6 +32,16 @@ const RightPanel = lazy(() => import('./components/right-panel'));
 /** macOS overlay title bar safe zone — only needed when titleBarStyle: "Overlay" (macOS-only). */
 const SAFE_ZONE_TOP = navigator.userAgent.includes('Mac') ? 38 : 0;
 
+const maybeNotify = async (title: string, body?: string) => {
+  try {
+    const granted = await isPermissionGranted();
+    const ok = granted || (await requestPermission()) === 'granted';
+    if (ok) sendNotification({ title, body });
+  } catch {
+    /* silent */
+  }
+};
+
 export default function App() {
   const { logs, addLog } = useLogger();
   const {
@@ -52,7 +62,10 @@ export default function App() {
     pendingEncryptedFiles,
     handlePasswordConfirm,
     handlePasswordCancel,
-  } = useQueue(addLog);
+  } = useQueue(addLog, (filePath, errorMessage) => {
+    const name = filePath.split('/').pop() || filePath;
+    maybeNotify('OCR failed', `${name} — ${errorMessage}`);
+  });
   const [settings, setSettings] = useState<ProfileValues>({
     memoryPages: 30,
     binarization: 'otsu',
@@ -86,66 +99,53 @@ export default function App() {
         : null;
       if (currentPre !== updatePre) return;
 
-      const maybeNotify = async (title: string, body?: string) => {
-        try {
-          const granted = await isPermissionGranted();
-          const ok = granted || (await requestPermission()) === 'granted';
-          if (ok) sendNotification({ title, body });
-        } catch {
-          /* silent */
-        }
-      };
-
-      const toastId = toast(
-        `Update v${update.version} available`,
-        {
-          description: update.body || undefined,
-          duration: 20_000,
-          action: {
-            label: 'Download',
-            onClick: async () => {
-              let downloaded = 0;
-              let contentLength = 0;
-              toast.loading('Downloading update...', { id: toastId });
-              try {
-                await update.downloadAndInstall((event) => {
-                  if (event.event === 'Started') {
-                    contentLength = event.data.contentLength ?? 0;
-                  } else if (event.event === 'Progress') {
-                    downloaded += event.data.chunkLength;
-                    const pct = contentLength
-                      ? Math.round((downloaded / contentLength) * 100)
-                      : 0;
-                    toast(
-                      <div className="text-sm">
-                        <Progress value={pct} className="mt-2" />
-                        <p className="text-xs !text-muted-foreground mt-1">
-                          {pct}%
-                        </p>
-                      </div>,
-                      { id: toastId, duration: Infinity },
-                    );
-                  }
-                });
-                toast.success('Update ready! Restart to apply.', {
-                  id: toastId,
-                  duration: 30_000,
-                  action: {
-                    label: 'Restart now',
-                    onClick: () => invoke('restart_app'),
-                  },
-                });
-                maybeNotify(
-                  'Update ready',
-                  `v${update.version} downloaded. Restart to apply.`,
-                );
-              } catch {
-                toast.error('Update download failed', { id: toastId });
-              }
-            },
+      const toastId = toast(`Update v${update.version} available`, {
+        description: update.body || undefined,
+        duration: 20_000,
+        action: {
+          label: 'Download',
+          onClick: async () => {
+            let downloaded = 0;
+            let contentLength = 0;
+            toast.loading('Downloading update...', { id: toastId });
+            try {
+              await update.downloadAndInstall((event) => {
+                if (event.event === 'Started') {
+                  contentLength = event.data.contentLength ?? 0;
+                } else if (event.event === 'Progress') {
+                  downloaded += event.data.chunkLength;
+                  const pct = contentLength
+                    ? Math.round((downloaded / contentLength) * 100)
+                    : 0;
+                  toast(
+                    <div className="text-sm">
+                      <Progress value={pct} className="mt-2" />
+                      <p className="text-xs !text-muted-foreground mt-1">
+                        {pct}%
+                      </p>
+                    </div>,
+                    { id: toastId, duration: Infinity },
+                  );
+                }
+              });
+              toast.success('Update ready! Restart to apply.', {
+                id: toastId,
+                duration: 30_000,
+                action: {
+                  label: 'Restart now',
+                  onClick: () => invoke('restart_app'),
+                },
+              });
+              maybeNotify(
+                'Update ready',
+                `v${update.version} downloaded. Restart to apply.`,
+              );
+            } catch {
+              toast.error('Update download failed', { id: toastId });
+            }
           },
         },
-      );
+      });
       maybeNotify(
         'Update available',
         `v${update.version} is ready to download.`,
@@ -162,6 +162,21 @@ export default function App() {
     checkedRef.current = true;
     checkForUpdates();
   }, [checkForUpdates]);
+
+  const wasRunningRef = useRef(false);
+
+  useEffect(() => {
+    if (wasRunningRef.current && !isRunning) {
+      const completed = files.filter((f) => f.status === 'complete').length;
+      const failed = files.filter((f) => f.status === 'error').length;
+      if (failed > 0) {
+        maybeNotify('OCR complete', `${completed} processed, ${failed} failed`);
+      } else {
+        maybeNotify('OCR complete', `${completed} files processed`);
+      }
+    }
+    wasRunningRef.current = isRunning;
+  }, [isRunning, files]);
 
   return (
     <>

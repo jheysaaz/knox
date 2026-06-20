@@ -29,3 +29,5 @@ src-tauri/tessdata/
 *.njsproj
 *.sln
 *.sw?
+*.test-update-bak
+tmp/

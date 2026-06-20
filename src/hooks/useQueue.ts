@@ -2,25 +2,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { ProfileValues } from '@/components/advanced-options';
-import type { LogEntry } from '@/types';
+import type { LogEntry, QueueState } from '@/types';
 import { useEventListener } from './useEventListener';
 import { useFileManager } from './useFileManager';
-
-interface QueueState {
-  jobs: Job[];
-  isRunning: boolean;
-}
-
-interface Job {
-  id: string;
-  inputPath: string;
-  outputPath: string;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-  percent: number;
-  startedAt?: number;
-  finishedAt?: number;
-  errorMessage?: string | null;
-}
 
 interface FileEncryptionInfo {
   encrypted: boolean;
@@ -53,6 +37,7 @@ const mapSettingsToProcessing = (values: ProfileValues) => ({
 
 export function useQueue(
   addLog: (level: LogEntry['level'], message: string) => void,
+  onJobError?: (filePath: string, errorMessage: string) => void,
 ) {
   const {
     files,
@@ -110,7 +95,7 @@ export function useQueue(
     setIsRunning,
     ensureListeners,
     handleClearHistory,
-  } = useEventListener(setFiles, addLog, handleEncryptionError);
+  } = useEventListener(setFiles, addLog, handleEncryptionError, onJobError);
 
   const executeStart = useCallback(
     async (settings: ProfileValues) => {

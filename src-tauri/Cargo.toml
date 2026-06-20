@@ -39,14 +39,12 @@ lopdf = "0.33"
 image = "0.25"
 imageproc = "0.24"
 tracing = "0.1"
-tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 thiserror = "1"
 tesseract-sys = { version = "0.6", optional = true }
 leptonica-sys = { version = "0.4", optional = true }
 ts-rs = { version = "12", features = ["serde-compat"], optional = true }
 flate2 = "1"
-futures = "0.3"
 pdfluent-jbig2 = "0.2.2"
 pdfluent-ccitt = "0.2"
 fax = "0.2"
@@ -62,7 +60,6 @@ strip = true
 debug = 0
 
 [dev-dependencies]
-lopdf = "0.33"
 ab_glyph = "0.2"
 tauri = { version = "2", features = ["test"] }
 criterion = { version = "0.5", features = ["html_reports"] }

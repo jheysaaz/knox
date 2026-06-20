@@ -1,39 +1,12 @@
-// Re-export all IPC types generated from Rust via ts-rs.
+// IPC types consumed by frontend code. Generated from Rust via ts-rs.
 import type {
-  BinarizationMode,
-  CompressionMode,
-  DeskewMode,
-  ExistingTextMode,
-  FileMetadata,
   HistoryEntry,
   Job,
-  JobStatus,
-  OcrOptions,
-  OutputType,
-  PageSegMode,
   PipelineProgress,
-  PipelineStatus,
-  ProcessingConfigInput,
   QueueState,
 } from '@/types-gen/index';
 
-export type {
-  BinarizationMode,
-  CompressionMode,
-  DeskewMode,
-  ExistingTextMode,
-  FileMetadata,
-  HistoryEntry,
-  Job,
-  JobStatus,
-  OcrOptions,
-  OutputType,
-  PageSegMode,
-  PipelineProgress,
-  PipelineStatus,
-  ProcessingConfigInput,
-  QueueState,
-};
+export type { HistoryEntry, Job, PipelineProgress, QueueState };
 
 /** A single file entry displayed in the queue view. */
 export interface FileItem {

@@ -1,34 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { FileItem, HistoryEntry, LogEntry } from '@/types';
-
-interface QueueState {
-  jobs: Job[];
-  isRunning: boolean;
-}
-
-interface Job {
-  id: string;
-  inputPath: string;
-  outputPath: string;
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-  percent: number;
-  startedAt?: number;
-  finishedAt?: number;
-  errorMessage?: string | null;
-}
-
-interface PipelineProgress {
-  jobId: string;
-  status: 'processing' | 'ocr' | 'completed' | 'failed';
-  currentPage: number;
-  totalPages: number;
-  totalFilesProcessed: number;
-  totalFilesInQueue: number;
-  averageMsPerPage: number;
-  errorMessage?: string | null;
-}
+import type {
+  FileItem,
+  HistoryEntry,
+  Job,
+  LogEntry,
+  PipelineProgress,
+  QueueState,
+} from '@/types';
 
 const mapJobStatus = (status: Job['status']): FileItem['status'] => {
   switch (status) {
@@ -49,6 +29,7 @@ export function useEventListener(
   setFiles: React.Dispatch<React.SetStateAction<FileItem[]>>,
   addLog: (level: LogEntry['level'], message: string) => void,
   onEncryptionError?: (filePath: string) => void,
+  onJobError?: (filePath: string, errorMessage: string) => void,
 ) {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -57,6 +38,8 @@ export function useEventListener(
   const cleanupFns = useRef<(() => void)[]>([]);
   const onEncryptionErrorRef = useRef(onEncryptionError);
   onEncryptionErrorRef.current = onEncryptionError;
+  const onJobErrorRef = useRef(onJobError);
+  onJobErrorRef.current = onJobError;
 
   useEffect(() => {
     invoke<HistoryEntry[]>('get_history')
@@ -147,13 +130,18 @@ export function useEventListener(
               ? `Paused: ${job.inputPath}`
               : `Failed: ${job.errorMessage || job.inputPath}`,
         );
-        if (
-          job.status === 'failed' &&
-          job.errorMessage &&
-          (job.errorMessage.toLowerCase().includes('password') ||
-            job.errorMessage.toLowerCase().includes('encrypt'))
-        ) {
-          onEncryptionErrorRef.current?.(job.inputPath);
+        if (job.status === 'failed') {
+          if (
+            job.errorMessage &&
+            (job.errorMessage.toLowerCase().includes('password') ||
+              job.errorMessage.toLowerCase().includes('encrypt'))
+          ) {
+            onEncryptionErrorRef.current?.(job.inputPath);
+          }
+          onJobErrorRef.current?.(
+            job.inputPath,
+            job.errorMessage ?? 'Unknown error',
+          );
         }
       }),
       listen<Job>('jobProgress', (event) => {

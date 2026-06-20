@@ -278,7 +278,6 @@ pub fn run() {
     START_TIME.get_or_init(Instant::now);
     tracing::info!("application started");
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(dialog_init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())

@@ -14,9 +14,6 @@ importers:
       '@fontsource/jetbrains-mono':
         specifier: ^5.2.8
         version: 5.2.8
-      '@radix-ui/react-accordion':
-        specifier: ^1.2.14
-        version: 1.2.14(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@radix-ui/react-progress':
         specifier: ^1.1.10
         version: 1.1.10(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -26,9 +23,6 @@ importers:
       '@radix-ui/react-select':
         specifier: ^2.3.1
         version: 2.3.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@radix-ui/react-separator':
-        specifier: ^1.1.10
-        version: 1.1.10(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@radix-ui/react-slider':
         specifier: ^1.4.1
         version: 1.4.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -53,9 +47,6 @@ importers:
       '@tauri-apps/plugin-notification':
         specifier: ^2.3.3
         version: 2.3.3
-      '@tauri-apps/plugin-opener':
-        specifier: ^2.5.4
-        version: 2.5.4
       '@tauri-apps/plugin-updater':
         specifier: ^2.10.1
         version: 2.10.1
@@ -1683,9 +1674,6 @@ packages:
 
   '@tauri-apps/plugin-notification@2.3.3':
     resolution: {integrity: sha512-Zw+ZH18RJb41G4NrfHgIuofJiymusqN+q8fGUIIV7vyCH+5sSn5coqRv/MWB9qETsUs97vmU045q7OyseCV3Qg==}
-
-  '@tauri-apps/plugin-opener@2.5.4':
-    resolution: {integrity: sha512-1HnPkb+AmgO29HBazm4uPLKB+r7zzcTBW1d0fyYp1uP+jwtpoiNDGKMMzz58SFp49nOIrxdE3aUJtT57lfO9CQ==}
 
   '@tauri-apps/plugin-updater@2.10.1':
     resolution: {integrity: sha512-NFYMg+tWOZPJdzE/PpFj2qfqwAWwNS3kXrb1tm1gnBJ9mYzZ4WDRrwy8udzWoAnfGCHLuePNLY1WVCNHnh3eRA==}
@@ -5005,10 +4993,6 @@ snapshots:
       '@tauri-apps/api': 2.11.1
 
   '@tauri-apps/plugin-notification@2.3.3':
-    dependencies:
-      '@tauri-apps/api': 2.11.1
-
-  '@tauri-apps/plugin-opener@2.5.4':
     dependencies:
       '@tauri-apps/api': 2.11.1
 
