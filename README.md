@@ -57,6 +57,11 @@ pnpm tauri build       # Production build
 - macOS 12+ (Apple Silicon)
 - Windows 10+
 
+> **macOS Gatekeeper**: Knox is not notarized. After installing, run:
+> ```bash
+> xattr -cr /Applications/Knox.app
+> ```
+
 Offline-only; no cloud dependencies.
 
 ## Credits
