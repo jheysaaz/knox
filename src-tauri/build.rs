@@ -4,17 +4,6 @@ use std::path::PathBuf;
 fn main() {
     tauri_build::build();
 
-    // When the `typescript` feature is enabled, set ts-rs export config.
-    // Run: cargo test --features typescript --no-default-features
-    if env::var_os("CARGO_FEATURE_TYPESCRIPT").is_some() {
-        let manifest_dir =
-            PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
-        let export_dir = manifest_dir.join("..").join("src").join("types-gen");
-        println!("cargo:rustc-env=TS_RS_EXPORT_DIR={}", export_dir.display());
-        // Serialize u64 as TypeScript `number` (fits Number.MAX_SAFE_INTEGER).
-        println!("cargo:rustc-env=TS_RS_LARGE_INT=number");
-    }
-
     let target = env::var("TARGET").expect("TARGET not set");
     if target == "x86_64-apple-darwin" {
         panic!("x86_64-apple-darwin is not supported");

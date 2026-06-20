@@ -4,8 +4,6 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
-#[cfg(feature = "typescript")]
-use ts_rs::TS;
 
 #[cfg(feature = "integration")]
 pub mod commands;
@@ -30,8 +28,6 @@ pub struct CommandError {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(TS))]
-#[cfg_attr(feature = "typescript", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct FileEncryptionInfo {
     pub encrypted: bool,
@@ -78,16 +74,14 @@ impl fmt::Display for CommandError {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(TS))]
-#[cfg_attr(feature = "typescript", ts(export))]
+
 #[serde(rename_all = "camelCase")]
 pub struct FileMetadata {
     pub size: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(TS))]
-#[cfg_attr(feature = "typescript", ts(export))]
+
 #[serde(rename_all = "camelCase")]
 pub struct OcrOptions {
     pub output_type: OutputType,
@@ -117,8 +111,7 @@ impl OcrOptions {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(TS))]
-#[cfg_attr(feature = "typescript", ts(export))]
+
 #[serde(rename_all = "lowercase")]
 pub enum OutputType {
     Pdfa,
@@ -126,8 +119,7 @@ pub enum OutputType {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(TS))]
-#[cfg_attr(feature = "typescript", ts(export))]
+
 #[serde(rename_all = "camelCase")]
 pub struct EnqueuePayload {
     pub files: Vec<String>,
@@ -137,8 +129,7 @@ pub struct EnqueuePayload {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(TS))]
-#[cfg_attr(feature = "typescript", ts(export))]
+
 #[serde(rename_all = "camelCase")]
 pub struct Job {
     pub id: String,
@@ -154,8 +145,7 @@ pub struct Job {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(TS))]
-#[cfg_attr(feature = "typescript", ts(export))]
+
 #[serde(rename_all = "lowercase")]
 pub enum JobStatus {
     Queued,
@@ -166,8 +156,7 @@ pub enum JobStatus {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(TS))]
-#[cfg_attr(feature = "typescript", ts(export))]
+
 #[serde(rename_all = "camelCase")]
 pub struct QueueState {
     pub jobs: Vec<Job>,
@@ -175,8 +164,7 @@ pub struct QueueState {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "typescript", derive(TS))]
-#[cfg_attr(feature = "typescript", ts(export))]
+
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
     pub id: String,

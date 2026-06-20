@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '0 6 * * 1'  # weekly Monday 6am UTC — warm caches
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,7 +16,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  # ── Detect which files changed ──────────────────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'src-tauri/**'
+              - '.github/workflows/ci.yml'
+
+  # ── Frontend (always — fast, no Rust) ──────────────────────────────────
+  frontend:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: vitest run --coverage
+      - uses: codecov/codecov-action@v5
+        with:
+          files: coverage/lcov.info
+          fail_ci_if_error: false
+
+  # ── Backend (only when Rust files change) ──────────────────────────────
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -23,14 +65,12 @@ jobs:
             target: aarch64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
       # ── System Dependencies ──────────────────────────────────────────────
-      # Tauri v2 runtime libs + OCR dev headers for tesseract-sys/leptonica-sys
       - name: Install system deps (macOS)
         if: matrix.os == 'macos-latest'
         run: |
@@ -78,11 +118,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
       - name: sccache
         uses: mozilla-actions/sccache-action@v0.0.10
-
-      # ── Frontend ─────────────────────────────────────────────────────────
       - run: pnpm install --frozen-lockfile
 
       # ── Tessdata bundle ─────────────────────────────────────────────────
@@ -137,17 +174,9 @@ jobs:
           cargo clippy --tests -- -D warnings
           cargo llvm-cov --lcov --output-path lcov.info
 
-      # ── Frontend checks & coverage ───────────────────────────────────
-      - name: Frontend checks & coverage
-        shell: bash
-        run: |
-          set -e
-          pnpm build
-          pnpm test:coverage
-
-      # ── Upload coverage reports ──────────────────────────────────────
+      # ── Upload coverage ──────────────────────────────────────────────
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: src-tauri/lcov.info,coverage/lcov.info
+          files: src-tauri/lcov.info
           fail_ci_if_error: false
