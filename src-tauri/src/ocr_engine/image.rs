@@ -242,7 +242,8 @@ fn erode_par(image: &GrayImage) -> GrayImage {
             if y == 0 || y >= h - 1 {
                 return;
             }
-            for x in 1..w - 1 {
+            for (x, pixel) in row_out[1..w - 1].iter_mut().enumerate() {
+                let x = x + 1;
                 let mut keep = true;
                 for dy in -1i32..=1 {
                     for dx in -1i32..=1 {
@@ -257,7 +258,7 @@ fn erode_par(image: &GrayImage) -> GrayImage {
                         break;
                     }
                 }
-                row_out[x] = if keep { 255 } else { 0 };
+                *pixel = if keep { 255 } else { 0 };
             }
         });
     out
@@ -281,7 +282,8 @@ fn dilate_par(image: &GrayImage) -> GrayImage {
             if y == 0 || y >= h - 1 {
                 return;
             }
-            for x in 1..w - 1 {
+            for (x, pixel) in row_out[1..w - 1].iter_mut().enumerate() {
+                let x = x + 1;
                 let mut keep = false;
                 for dy in -1i32..=1 {
                     for dx in -1i32..=1 {
@@ -296,7 +298,7 @@ fn dilate_par(image: &GrayImage) -> GrayImage {
                         break;
                     }
                 }
-                row_out[x] = if keep { 255 } else { 0 };
+                *pixel = if keep { 255 } else { 0 };
             }
         });
     out

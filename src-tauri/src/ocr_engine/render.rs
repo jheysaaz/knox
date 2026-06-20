@@ -49,7 +49,8 @@ impl PdfiumEngine {
         let (tx, rx) = mpsc::channel();
 
         std::thread::spawn(move || {
-            let result = render_pdfium_page(&lib_path, &pdf_path, page_index, dpi, password.as_deref());
+            let result =
+                render_pdfium_page(&lib_path, &pdf_path, page_index, dpi, password.as_deref());
             let _ = tx.send(result);
         });
 

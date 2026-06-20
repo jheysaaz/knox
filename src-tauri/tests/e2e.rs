@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use image::{GrayImage, Luma};
+use knox_lib::ocr_engine::error::PipelineError;
 use knox_lib::ocr_engine::image::preprocess;
 use knox_lib::ocr_engine::ocr::{TessApi, WordBounds};
 use knox_lib::ocr_engine::pdf::{
@@ -14,7 +15,6 @@ use knox_lib::ocr_engine::render::PdfiumEngine;
 use knox_lib::ocr_engine::types::{
     BinarizationMode, CompressionMode, DeskewMode, ExistingTextMode, OcrSettings, PageSegMode,
 };
-use knox_lib::ocr_engine::error::PipelineError;
 use lopdf::{Dictionary, Document, Object, Stream};
 
 /// Renders `text` onto a white 300x100 GrayImage using the font at `font_path`.
@@ -41,8 +41,8 @@ fn create_synthetic_pdf(path: &Path, pages: &[GrayImage]) {
 
         // Raw grayscale bytes → FlateDecode stream
         let raw = img.to_vec();
-        use flate2::write::ZlibEncoder;
         use flate2::Compression;
+        use flate2::write::ZlibEncoder;
         let compressed = {
             let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
             std::io::Write::write_all(&mut e, &raw).unwrap();
@@ -101,8 +101,7 @@ fn create_synthetic_pdf(path: &Path, pages: &[GrayImage]) {
         Object::Array(page_ids.iter().map(|&id| Object::Reference(id)).collect()),
     );
     pages_dict.set("Count", Object::Integer(page_ids.len() as i64));
-    doc.objects
-        .insert(pages_id, Object::Dictionary(pages_dict));
+    doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
 
     // Set each page's Parent
     for &page_id in &page_ids {
@@ -158,18 +157,11 @@ fn validate_output_pdf(path: &Path, expected_pages: u32) {
         path.display()
     );
     let meta = std::fs::metadata(path).expect("failed to stat output");
-    assert!(
-        meta.len() > 100,
-        "output PDF too small ({})",
-        meta.len()
-    );
+    assert!(meta.len() > 100, "output PDF too small ({})", meta.len());
 
     let doc = Document::load(path).expect("output is not a valid PDF");
     let catalog = doc.catalog().expect("output PDF has no catalog");
-    assert!(
-        catalog.get(b"Pages").is_ok(),
-        "output PDF has no page tree"
-    );
+    assert!(catalog.get(b"Pages").is_ok(), "output PDF has no page tree");
     assert_eq!(
         doc.get_pages().len() as u32,
         expected_pages,
@@ -200,11 +192,7 @@ fn render_or_extract_page(
 /// then validates the output PDF structure.
 fn run_sample_pipeline(sample_name: &str, tessdata: &str) {
     let src = sample_path(sample_name);
-    assert!(
-        src.exists(),
-        "sample file not found: {}",
-        src.display()
-    );
+    assert!(src.exists(), "sample file not found: {}", src.display());
 
     let tmp = std::env::temp_dir();
     let input = tmp.join(format!("knox_e2e_input_{sample_name}"));
@@ -267,9 +255,7 @@ fn run_sample_pipeline(sample_name: &str, tessdata: &str) {
         let text = tess.get_text().expect("OCR failed");
         let words = tess.get_words().expect("failed to get word bounds");
 
-        eprintln!(
-            "Page {page_number} OCR text ({sample_name}): {text:?}"
-        );
+        eprintln!("Page {page_number} OCR text ({sample_name}): {text:?}");
 
         if text.trim().is_empty() {
             eprintln!("WARN: page {page_number} produced no text");
@@ -306,8 +292,7 @@ fn run_sample_pipeline(sample_name: &str, tessdata: &str) {
     )
     .expect("failed to add text layers");
 
-    finalize(&mut doc, &output, settings.archive_enforcement)
-        .expect("failed to finalize PDF");
+    finalize(&mut doc, &output, settings.archive_enforcement).expect("failed to finalize PDF");
 
     validate_output_pdf(&output, total_pages);
 
@@ -397,17 +382,15 @@ fn e2e_ocr_pipeline_round_trip() {
 
     for (page_number, _page_id) in &pages {
         // Extract embedded image from page
-        let image_opt =
-            extract_lopdf_page(&doc, *page_number, ExistingTextMode::Skip)
-                .expect("failed to extract page image");
+        let image_opt = extract_lopdf_page(&doc, *page_number, ExistingTextMode::Skip)
+            .expect("failed to extract page image");
         let Some(image) = image_opt else {
             eprintln!("SKIP: page {page_number} has no embedded image");
             continue;
         };
 
         // Preprocess
-        let processed = preprocess(&image, &settings, false)
-            .expect("preprocessing failed");
+        let processed = preprocess(&image, &settings, false).expect("preprocessing failed");
 
         // OCR
         tess.set_image_bytes(
@@ -442,8 +425,7 @@ fn e2e_ocr_pipeline_round_trip() {
             // Replace image in the document
             let mut replacements = BTreeMap::new();
             replacements.insert(*page_number, stream);
-            replace_page_images(&mut doc, replacements)
-                .expect("failed to replace page images");
+            replace_page_images(&mut doc, replacements).expect("failed to replace page images");
         }
     }
 
@@ -457,14 +439,10 @@ fn e2e_ocr_pipeline_round_trip() {
     )
     .expect("failed to add text layers");
 
-    finalize(&mut doc, &output_path, settings.archive_enforcement)
-        .expect("failed to finalize PDF");
+    finalize(&mut doc, &output_path, settings.archive_enforcement).expect("failed to finalize PDF");
 
     // ── Step 5: Verify output ──
-    assert!(
-        output_path.exists(),
-        "output PDF was not created"
-    );
+    assert!(output_path.exists(), "output PDF was not created");
     let output_meta = std::fs::metadata(&output_path).expect("failed to stat output");
     assert!(
         output_meta.len() > 100,
@@ -474,13 +452,8 @@ fn e2e_ocr_pipeline_round_trip() {
 
     // Verify output is a valid PDF with a catalog
     let output_doc = Document::load(&output_path).expect("output is not a valid PDF");
-    let catalog = output_doc
-        .catalog()
-        .expect("output PDF has no catalog");
-    assert!(
-        catalog.get(b"Pages").is_ok(),
-        "output PDF has no page tree"
-    );
+    let catalog = output_doc.catalog().expect("output PDF has no catalog");
+    assert!(catalog.get(b"Pages").is_ok(), "output PDF has no page tree");
 
     // Cleanup
     let _ = std::fs::remove_file(&input_path);

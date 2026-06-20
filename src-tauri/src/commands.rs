@@ -6,10 +6,9 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-
 use crate::history;
 use crate::ocr_engine::runtime::RuntimeResources;
-use crate::queue::{SharedQueue, QueueStore, default_concurrency, now_millis};
+use crate::queue::{QueueStore, SharedQueue, default_concurrency, now_millis};
 use crate::security;
 use crate::{
     CommandError, EnqueuePayload, FileEncryptionInfo, FileMetadata, HistoryEntry, Job, JobStatus,
@@ -447,7 +446,11 @@ fn dequeue_job(state: &SharedQueue) -> Option<JobSpawn> {
         queue.queue.pop_front();
         queue.in_flight += 1;
         let processing = queue.jobs[index].processing.clone();
-        Some(JobSpawn { index, options, processing })
+        Some(JobSpawn {
+            index,
+            options,
+            processing,
+        })
     } else {
         None
     }
@@ -565,7 +568,11 @@ async fn run_job(
                 id: job_id,
                 input_path,
                 output_path,
-                status: if succeeded { JobStatus::Completed } else { JobStatus::Failed },
+                status: if succeeded {
+                    JobStatus::Completed
+                } else {
+                    JobStatus::Failed
+                },
                 started_at,
                 finished_at,
                 duration_ms,
@@ -587,7 +594,9 @@ pub fn start_queue(
         return Ok(());
     }
     let cancelled = queue.cancelled.clone();
-    queue.cancelled.store(false, std::sync::atomic::Ordering::SeqCst);
+    queue
+        .cancelled
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     queue.is_running = true;
     emit_queue_state(&app, &queue);
     drop(queue);
@@ -601,7 +610,7 @@ pub fn start_queue(
                 let should_stop = {
                     let queue = lock_or_err!(state.lock(), "knox::queue", return);
                     if queue.in_flight == 0 {
-                        emit_queue_state(&app, &*queue);
+                        emit_queue_state(&app, &queue);
                         true
                     } else {
                         false
@@ -620,14 +629,20 @@ pub fn start_queue(
                 let h = history_state.clone();
                 let cc = cancelled.clone();
                 tauri::async_runtime::spawn(run_job(
-                    app, state, h, spawn.index, spawn.options, spawn.processing, cc,
+                    app,
+                    state,
+                    h,
+                    spawn.index,
+                    spawn.options,
+                    spawn.processing,
+                    cc,
                 ));
             } else {
                 let should_stop = {
                     let mut queue = lock_or_err!(state.lock(), "knox::queue", return);
                     if queue.in_flight == 0 && queue.queue.is_empty() {
                         queue.is_running = false;
-                        emit_queue_state(&app, &*queue);
+                        emit_queue_state(&app, &queue);
                         true
                     } else {
                         false
@@ -691,9 +706,7 @@ pub fn check_file_encrypted(path: String) -> Result<FileEncryptionInfo, CommandE
                     file_id,
                 })
             } else {
-                Err(CommandError::pipeline(format!(
-                    "Failed to load PDF: {e}"
-                )))
+                Err(CommandError::pipeline(format!("Failed to load PDF: {e}")))
             }
         }
     }

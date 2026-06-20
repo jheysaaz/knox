@@ -51,8 +51,7 @@ fn atomic_save(path: &std::path::Path, store: &HistoryStore) -> Result<(), Strin
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, &data)
         .map_err(|e| format!("Unable to write history to {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path)
-        .map_err(|e| format!("Unable to rename history file: {e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("Unable to rename history file: {e}"))?;
     tracing::debug!(target: "knox::history", path = %path.display(), "history saved atomically");
     Ok(())
 }
@@ -77,12 +76,11 @@ pub fn push_history(app: &AppHandle, state: &Arc<Mutex<HistoryStore>>, entry: Hi
                 return;
             }
         };
-        if let Err(e) = tokio::task::spawn_blocking(move || {
-            atomic_save(&path, &HistoryStore { entries })
-        })
-        .await
-        .map_err(|e| format!("spawn_blocking failed: {e}"))
-        .and_then(|r| r)
+        if let Err(e) =
+            tokio::task::spawn_blocking(move || atomic_save(&path, &HistoryStore { entries }))
+                .await
+                .map_err(|e| format!("spawn_blocking failed: {e}"))
+                .and_then(|r| r)
         {
             tracing::error!(target: "knox::history", "save failed: {e}");
         }
@@ -94,10 +92,7 @@ pub fn push_history(app: &AppHandle, state: &Arc<Mutex<HistoryStore>>, entry: Hi
 }
 
 /// Insert an entry into the in-memory store and enforce the limit (no I/O).
-pub(crate) fn push_history_in_memory(
-    state: &Arc<Mutex<HistoryStore>>,
-    entry: HistoryEntry,
-) {
+pub(crate) fn push_history_in_memory(state: &Arc<Mutex<HistoryStore>>, entry: HistoryEntry) {
     if let Ok(mut history) = state.lock() {
         history.entries.insert(0, entry);
         if history.entries.len() > HISTORY_LIMIT {

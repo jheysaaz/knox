@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 #[cfg(feature = "typescript")]
 use ts_rs::TS;
-use tauri::Manager;
 
 #[cfg(feature = "integration")]
 pub mod commands;
@@ -207,7 +207,6 @@ pub fn resolve_tessdata_path() -> Option<String> {
         std::env::var("TESSDATA_PREFIX").ok().map(PathBuf::from),
         Some(PathBuf::from("/opt/homebrew/share/tessdata")),
         Some(PathBuf::from("/usr/local/share/tessdata/")),
-
     ]
     .into_iter()
     .flatten()
@@ -224,7 +223,6 @@ pub fn resolve_pdfium_path(app: &tauri::AppHandle) -> Option<String> {
             .ok()
             .map(|d| d.join("pdfium").join(pdfium_lib_name())),
         Some(PathBuf::from("/opt/homebrew/lib/libpdfium.dylib")),
-
     ]
     .into_iter()
     .flatten()

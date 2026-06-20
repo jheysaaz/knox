@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 
 use image::GrayImage;
@@ -14,7 +14,7 @@ use crate::ocr_engine::types::ExistingTextMode;
 /// grayscale bytes (0=black, 255=white). Row stride = ceil(width / 8).
 /// Trailing bits past `width` are discarded per row.
 fn expand_1bpp_to_8bpp(data: &[u8], width: u32, height: u32) -> Vec<u8> {
-    let stride = ((width + 7) / 8) as usize;
+    let stride = width.div_ceil(8) as usize;
     let mut out = Vec::with_capacity((width * height) as usize);
     for y in 0..height {
         let row = y as usize * stride;
@@ -41,14 +41,13 @@ fn needs_photometric_inversion(stream: &Stream) -> bool {
     {
         return true;
     }
-    if let Ok(decode) = stream.dict.get(b"Decode") {
-        if let Ok(arr) = decode.as_array() {
-            if arr.len() >= 2 {
-                let d0 = arr[0].as_i64().unwrap_or(0);
-                let d1 = arr[1].as_i64().unwrap_or(1);
-                return d0 > d1;
-            }
-        }
+    if let Ok(decode) = stream.dict.get(b"Decode")
+        && let Ok(arr) = decode.as_array()
+        && arr.len() >= 2
+    {
+        let d0 = arr[0].as_i64().unwrap_or(0);
+        let d1 = arr[1].as_i64().unwrap_or(1);
+        return d0 > d1;
     }
     false
 }
@@ -239,10 +238,10 @@ pub fn extract_lopdf_page(
     let Some(&page_id) = pages.get(&page_number) else {
         return Ok(None);
     };
-    if matches!(existing_text, ExistingTextMode::Skip) {
-        if page_has_text(doc, page_id).unwrap_or(false) {
-            return Ok(None);
-        }
+    if matches!(existing_text, ExistingTextMode::Skip)
+        && page_has_text(doc, page_id).unwrap_or(false)
+    {
+        return Ok(None);
     }
     let page = doc
         .get_object(page_id)
@@ -482,22 +481,21 @@ pub(crate) fn get_page_media_box(
     loop {
         let obj = doc.get_object(page_id).ok()?;
         let dict = obj.as_dict().ok()?;
-        if let Ok(mb) = dict.get(b"MediaBox") {
-            if let Ok(arr) = mb.as_array() {
-                if arr.len() >= 4 {
-                    let llx = arr[0].as_float().unwrap_or(0.0);
-                    let lly = arr[1].as_float().unwrap_or(0.0);
-                    let urx = arr[2].as_float().unwrap_or(595.0);
-                    let ury = arr[3].as_float().unwrap_or(842.0);
-                    return Some((urx - llx, ury - lly));
-                }
-            }
+        if let Ok(mb) = dict.get(b"MediaBox")
+            && let Ok(arr) = mb.as_array()
+            && arr.len() >= 4
+        {
+            let llx = arr[0].as_float().unwrap_or(0.0);
+            let lly = arr[1].as_float().unwrap_or(0.0);
+            let urx = arr[2].as_float().unwrap_or(595.0);
+            let ury = arr[3].as_float().unwrap_or(842.0);
+            return Some((urx - llx, ury - lly));
         }
-        if let Ok(parent) = dict.get(b"Parent") {
-            if let Ok(parent_ref) = parent.as_reference() {
-                page_id = parent_ref;
-                continue;
-            }
+        if let Ok(parent) = dict.get(b"Parent")
+            && let Ok(parent_ref) = parent.as_reference()
+        {
+            page_id = parent_ref;
+            continue;
         }
         return None;
     }
@@ -663,16 +661,16 @@ fn resolve_dict<'a>(
 ///
 /// Our bitonal buffer uses 1 = black, so `BlackIs1 true` is set in DecodeParms.
 pub fn encode_ccitt_g4(width: u32, height: u32, bitonal: Vec<u8>) -> Result<Stream, PipelineError> {
-    use fax::encoder::Encoder;
     use fax::Color;
     use fax::VecWriter;
+    use fax::encoder::Encoder;
 
     let actual_width = u16::try_from(width)
         .map_err(|_| PipelineError::PdfParse(format!("CCITT width {width} exceeds u16")))?;
     let actual_height = u16::try_from(height)
         .map_err(|_| PipelineError::PdfParse(format!("CCITT height {height} exceeds u16")))?;
 
-    let row_bytes = ((actual_width as u16 + 7) / 8) as usize;
+    let row_bytes = actual_width.div_ceil(8) as usize;
     let writer = VecWriter::new();
     let mut encoder = Encoder::new(writer);
 
@@ -681,12 +679,16 @@ pub fn encode_ccitt_g4(width: u32, height: u32, bitonal: Vec<u8>) -> Result<Stre
         let end = start.saturating_add(row_bytes).min(bitonal.len());
         let row_data = &bitonal[start..end];
 
-        let pels = (0..actual_width as u16).map(|col| {
+        let pels = (0..actual_width).map(|col| {
             let byte_idx = (col / 8) as usize;
             let bit_idx = 7 - (col % 8);
             let bit = row_data.get(byte_idx).copied().unwrap_or(0);
             let pixel = (bit >> bit_idx) & 1;
-            if pixel == 1 { Color::Black } else { Color::White }
+            if pixel == 1 {
+                Color::Black
+            } else {
+                Color::White
+            }
         });
 
         encoder
@@ -786,7 +788,7 @@ pub(crate) fn decode_stream_image(
             n => {
                 return Err(PipelineError::PdfParse(format!(
                     "unsupported BitsPerComponent: {n}"
-                )))
+                )));
             }
         };
         if needs_photometric_inversion(stream) {
@@ -812,7 +814,7 @@ pub(crate) fn decode_stream_image(
                 n => {
                     return Err(PipelineError::PdfParse(format!(
                         "unsupported BitsPerComponent: {n}"
-                    )))
+                    )));
                 }
             };
             if needs_photometric_inversion(stream) {
@@ -1050,22 +1052,10 @@ mod tests {
         assert!(matches!(get_ok(dict, b"Filter"), Object::Name(n) if n == b"CCITTFaxDecode"));
         let dparms = dict.get(b"DecodeParms").unwrap();
         if let Object::Dictionary(d) = dparms {
-            assert!(matches!(
-                d.get(b"K").unwrap(),
-                Object::Integer(0)
-            ));
-            assert!(matches!(
-                d.get(b"Columns").unwrap(),
-                Object::Integer(16)
-            ));
-            assert!(matches!(
-                d.get(b"Rows").unwrap(),
-                Object::Integer(16)
-            ));
-            assert!(matches!(
-                d.get(b"BlackIs1").unwrap(),
-                Object::Boolean(true)
-            ));
+            assert!(matches!(d.get(b"K").unwrap(), Object::Integer(0)));
+            assert!(matches!(d.get(b"Columns").unwrap(), Object::Integer(16)));
+            assert!(matches!(d.get(b"Rows").unwrap(), Object::Integer(16)));
+            assert!(matches!(d.get(b"BlackIs1").unwrap(), Object::Boolean(true)));
         } else {
             panic!("DecodeParms should be a dictionary");
         }

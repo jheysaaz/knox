@@ -5,10 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use knox_lib::queue::{QueueStore, SharedQueue};
 use knox_lib::{
-    commands, EnqueuePayload, HistoryStore, JobStatus, OcrOptions, OutputType, SharedHistory,
+    EnqueuePayload, HistoryStore, JobStatus, OcrOptions, OutputType, SharedHistory, commands,
 };
-use tauri::test::{mock_builder, mock_context, noop_assets};
 use tauri::Manager;
+use tauri::test::{mock_builder, mock_context, noop_assets};
 
 /// Creates a minimal Tauri app with managed state so `tauri::State` can be
 /// extracted in tests.
@@ -104,10 +104,7 @@ fn enqueue_nonexistent_file_returns_error() {
     let app = build_test_app();
     let state = app.state::<SharedQueue>();
 
-    let result = commands::enqueue(
-        state,
-        default_enqueue(vec!["/nonexistent/test.pdf".into()]),
-    );
+    let result = commands::enqueue(state, default_enqueue(vec!["/nonexistent/test.pdf".into()]));
 
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().kind, "validation");
@@ -118,8 +115,11 @@ fn get_status_after_enqueue_returns_jobs() {
     let app = build_test_app();
     let state = app.state::<SharedQueue>();
 
-    commands::enqueue(state.clone(), default_enqueue(vec![sample_abs("poster.pdf")]))
-        .expect("enqueue failed");
+    commands::enqueue(
+        state.clone(),
+        default_enqueue(vec![sample_abs("poster.pdf")]),
+    )
+    .expect("enqueue failed");
 
     let queue_state = commands::get_status(state).expect("get_status failed");
     assert_eq!(queue_state.jobs.len(), 1);
@@ -150,8 +150,11 @@ fn clear_queue_removes_all_jobs() {
     let app = build_test_app();
     let state = app.state::<SharedQueue>();
 
-    commands::enqueue(state.clone(), default_enqueue(vec![sample_abs("poster.pdf")]))
-        .expect("enqueue failed");
+    commands::enqueue(
+        state.clone(),
+        default_enqueue(vec![sample_abs("poster.pdf")]),
+    )
+    .expect("enqueue failed");
 
     let cleared = commands::clear_queue(state.clone()).expect("clear_queue failed");
     assert!(cleared.jobs.is_empty());

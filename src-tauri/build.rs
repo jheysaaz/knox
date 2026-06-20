@@ -10,10 +10,7 @@ fn main() {
         let manifest_dir =
             PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
         let export_dir = manifest_dir.join("..").join("src").join("types-gen");
-        println!(
-            "cargo:rustc-env=TS_RS_EXPORT_DIR={}",
-            export_dir.display()
-        );
+        println!("cargo:rustc-env=TS_RS_EXPORT_DIR={}", export_dir.display());
         // Serialize u64 as TypeScript `number` (fits Number.MAX_SAFE_INTEGER).
         println!("cargo:rustc-env=TS_RS_LARGE_INT=number");
     }

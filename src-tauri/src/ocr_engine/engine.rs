@@ -14,8 +14,8 @@ use crate::ocr_engine::ingest::{IngestItem, enqueue_files};
 #[cfg(feature = "ocr")]
 use crate::ocr_engine::pdf::add_text_layers;
 use crate::ocr_engine::pdf::{
-    encode_ccitt_g4, encode_flate, extract_lopdf_page, finalize, load_document,
-    replace_page_images, get_page_media_box,
+    encode_ccitt_g4, encode_flate, extract_lopdf_page, finalize, get_page_media_box, load_document,
+    replace_page_images,
 };
 use crate::ocr_engine::progress::ProgressTracker;
 use crate::ocr_engine::render::PdfiumEngine;
@@ -170,12 +170,11 @@ fn extract_page_image(
     dpi: u16,
     password: Option<&str>,
 ) -> Result<Option<GrayImage>, PipelineError> {
-    if matches!(existing_text, ExistingTextMode::Skip) {
-        if let Some(&page_id) = document.get_pages().get(&page_number) {
-            if crate::ocr_engine::pdf::page_has_text(document, page_id).unwrap_or(false) {
-                return Ok(None);
-            }
-        }
+    if matches!(existing_text, ExistingTextMode::Skip)
+        && let Some(&page_id) = document.get_pages().get(&page_number)
+        && crate::ocr_engine::pdf::page_has_text(document, page_id).unwrap_or(false)
+    {
+        return Ok(None);
     }
     tracing::debug!(target: "knox::engine", page = page_number, dpi = dpi, "step: pdfium render_page");
     match pdfium.render_page(pdf_path, page_number - 1, dpi, password) {
@@ -198,8 +197,12 @@ fn extract_page_image(
     tracing::debug!(target: "knox::engine", page = page_number, "step: lopdf extraction");
     let result = extract_lopdf_page(document, page_number, existing_text);
     match &result {
-        Ok(v) => tracing::debug!(target: "knox::engine", page = page_number, has_image = v.is_some(), "step: lopdf extraction done"),
-        Err(e) => tracing::warn!(target: "knox::engine", page = page_number, error = %e, "step: lopdf extraction failed"),
+        Ok(v) => {
+            tracing::debug!(target: "knox::engine", page = page_number, has_image = v.is_some(), "step: lopdf extraction done")
+        }
+        Err(e) => {
+            tracing::warn!(target: "knox::engine", page = page_number, error = %e, "step: lopdf extraction failed")
+        }
     }
     result
 }
@@ -228,7 +231,18 @@ struct PagePrep {
 }
 
 async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError> {
-    let ProcessFileArgs { pool, app, tracker, config: _config, settings, item, cancelled, pdfium, #[cfg(feature = "ocr")] tess_pool } = args;
+    let ProcessFileArgs {
+        pool,
+        app,
+        tracker,
+        config: _config,
+        settings,
+        item,
+        cancelled,
+        pdfium,
+        #[cfg(feature = "ocr")]
+        tess_pool,
+    } = args;
     #[cfg(feature = "ocr")]
     let config = _config;
     let input_path = &item.path;
@@ -246,13 +260,12 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
     // --- Phase 1: Determine which pages to process ---
     let active_pages: Vec<u32> = (1..=total_pages)
         .filter(|&pn| {
-            if matches!(settings.existing_text, ExistingTextMode::Skip) {
-                if let Some(&page_id) = document.get_pages().get(&pn) {
-                    if crate::ocr_engine::pdf::page_has_text(&document, page_id).unwrap_or(false) {
-                        tracing::debug!(target: "knox::engine", job_id, page = pn, "skip: has existing text");
-                        return false;
-                    }
-                }
+            if matches!(settings.existing_text, ExistingTextMode::Skip)
+                && let Some(&page_id) = document.get_pages().get(&pn)
+                && crate::ocr_engine::pdf::page_has_text(&document, page_id).unwrap_or(false)
+            {
+                tracing::debug!(target: "knox::engine", job_id, page = pn, "skip: has existing text");
+                return false;
             }
             true
         })
@@ -269,7 +282,14 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
                 output_path.display()
             )));
         }
-        tracker.emit(&app, job_id, PipelineStatus::Completed, total_pages, total_pages, None);
+        tracker.emit(
+            &app,
+            job_id,
+            PipelineStatus::Completed,
+            total_pages,
+            total_pages,
+            None,
+        );
         tracker.record_file_done();
         return Ok(());
     }
@@ -383,7 +403,8 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
     }
 
     #[cfg(feature = "ocr")]
-    let mut text_layers: BTreeMap<u32, (Vec<crate::ocr_engine::ocr::WordBounds>, u32, u32)> = BTreeMap::new();
+    let mut text_layers: BTreeMap<u32, (Vec<crate::ocr_engine::ocr::WordBounds>, u32, u32)> =
+        BTreeMap::new();
     let mut replacements: BTreeMap<u32, lopdf::Stream> = BTreeMap::new();
 
     #[cfg(feature = "ocr")]
@@ -435,7 +456,11 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
                 tess.set_source_resolution(prep.effective_dpi as u32)?;
                 let _ = tess.get_text()?;
                 let min_confidence = 30.0;
-                let words = tess.get_words()?.into_iter().filter(|w| w.confidence >= min_confidence).collect::<Vec<_>>();
+                let words = tess
+                    .get_words()?
+                    .into_iter()
+                    .filter(|w| w.confidence >= min_confidence)
+                    .collect::<Vec<_>>();
                 let (img_w, img_h) = (ocr_image.width(), ocr_image.height());
                 text_layers.insert(prep.page_number, (words, img_w, img_h));
 
@@ -445,7 +470,11 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
                     let stream = if let Some(ref bitonal) = processed.bitonal {
                         encode_ccitt_g4(bitonal.width, bitonal.height, bitonal.data.clone())?
                     } else {
-                        encode_flate(replace_image.width(), replace_image.height(), replace_image.to_vec())?
+                        encode_flate(
+                            replace_image.width(),
+                            replace_image.height(),
+                            replace_image.to_vec(),
+                        )?
                     };
                     replacements.insert(prep.page_number, stream);
                 }
@@ -463,10 +492,10 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
                 }
                 Err(e) => {
                     // Return TessApi to pool before propagating
-                    if let Ok(mut pool_guard) = tess_pool.lock() {
-                        if pool_guard.is_none() {
-                            *pool_guard = Some(tess);
-                        }
+                    if let Ok(mut pool_guard) = tess_pool.lock()
+                        && pool_guard.is_none()
+                    {
+                        *pool_guard = Some(tess);
                     }
                     return Err(e);
                 }
@@ -500,7 +529,11 @@ async fn process_single_file(args: ProcessFileArgs) -> Result<(), PipelineError>
                 let stream = if let Some(ref bitonal) = processed.bitonal {
                     encode_ccitt_g4(bitonal.width, bitonal.height, bitonal.data.clone())?
                 } else {
-                    encode_flate(replace_image.width(), replace_image.height(), replace_image.to_vec())?
+                    encode_flate(
+                        replace_image.width(),
+                        replace_image.height(),
+                        replace_image.to_vec(),
+                    )?
                 };
                 replacements.insert(prep.page_number, stream);
             }
