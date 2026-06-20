@@ -31,3 +31,7 @@ src-tauri/tessdata/
 *.sw?
 *.test-update-bak
 tmp/
+
+# Code coverage output
+coverage/
+src-tauri/lcov.info

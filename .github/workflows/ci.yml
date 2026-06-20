@@ -121,22 +121,33 @@ jobs:
         shell: bash
         run: codesign -f -s - src-tauri/pdfium/libpdfium.dylib 2>/dev/null || true
 
-      # ── Checks (frontend & backend in parallel) ───────────────────────
-      - name: Build, lint & test (frontend + backend parallel)
+      # ── Coverage tool ────────────────────────────────────────────────
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      # ── Backend checks & coverage ────────────────────────────────────
+      - name: Rust checks & coverage
         shell: bash
         run: |
           set -e
-          # Backend: format → clippy → tests
-          (
-            cd src-tauri
-            cargo fmt --check
-            cargo clippy --tests -- -D warnings
-            cargo test
-          ) &
-          BACKEND_PID=$!
+          cd src-tauri
+          cargo fmt --check
+          cargo clippy --tests -- -D warnings
+          cargo llvm-cov --lcov --output-path lcov.info
 
-          # Frontend: build → tests
-          pnpm build && pnpm test
+      # ── Frontend checks & coverage ───────────────────────────────────
+      - name: Frontend checks & coverage
+        shell: bash
+        run: |
+          set -e
+          pnpm build
+          vitest run --coverage
 
-          # Wait for backend, propagate its exit code
-          wait $BACKEND_PID
+      # ── Upload coverage reports ──────────────────────────────────────
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: src-tauri/lcov.info,coverage/lcov.info
+          fail_ci_if_error: false
