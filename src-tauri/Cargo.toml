@@ -34,7 +34,7 @@ uuid = { version = "1", features = ["v4"] }
 num_cpus = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time", "io-util"] }
 rayon = "1"
-lopdf = "0.33"
+lopdf = "0.42"
 image = "0.25"
 imageproc = "0.24"
 tracing = "0.1"
